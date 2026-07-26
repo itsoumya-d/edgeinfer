@@ -2,7 +2,7 @@
   <h1>EdgeInfer 🚀</h1>
   <p><strong>Zero-Cost, Privacy-First On-Device AI Inference</strong></p>
   
-  [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_3.0-red.svg)](https://www.gnu.org/licenses/agpl-3.0)
+  [![License: AGPL-3.0](https://img.shields.io/badge/License-BSL_1.1-red.svg)](https://mariadb.com/bsl11/)](https://www.gnu.org/licenses/agpl-3.0)
   [![NPM Version](https://img.shields.io/npm/v/edgeinfer.svg)](https://npmjs.com/package/edgeinfer)
   [![Build Status](https://img.shields.io/github/actions/workflow/status/soumyadebnath16/edgeinfer/ci.yml?branch=main)](https://github.com/soumyadebnath16/edgeinfer/actions)
   [![Coverage](https://img.shields.io/codecov/c/github/soumyadebnath16/edgeinfer)](https://codecov.io/gh/soumyadebnath16/edgeinfer)
@@ -343,32 +343,50 @@ We welcome community contributions! Please read our [Contributing Guidelines](CO
 
 ---
 
-## ⚖️ License — Dual-Licensed (AGPL-3.0 + Commercial)
+## ⚖️ License — Business Source License 1.1 (BSL 1.1)
 
-This project is **dual-licensed** to protect both open-source and commercial interests:
+> **This is NOT open-source software. Source code is available for viewing, but ALL production use requires a paid license.**
 
-### 🆓 Open Source — AGPL-3.0
-You may use, modify, and distribute this software under the [GNU Affero General Public License v3.0](https://www.gnu.org/licenses/agpl-3.0.html). **However**, AGPL-3.0 requires that:
+This project uses the **[Business Source License 1.1](https://mariadb.com/bsl11/)** — the same license trusted by HashiCorp (Terraform), Sentry, CockroachDB, and MariaDB.
 
-- ⚠️ **Any application using this library MUST also be open-sourced under AGPL-3.0**
-- ⚠️ This applies even if the software is only used as a **network service** (SaaS)
-- ⚠️ You must provide complete source code to ALL users who interact with your application
+### What You CAN Do (Free)
+- ✅ View, read, and study the source code
+- ✅ Run for personal, non-commercial evaluation and testing
+- ✅ Use for academic research and education
+- ✅ Contribute improvements via pull requests
 
-### 💼 Commercial License — For Startups & Enterprises
-If you want to use this in a **proprietary, closed-source product** (SaaS, mobile app, internal tool, etc.), you **MUST** purchase a commercial license.
+### What REQUIRES a Paid License
+- 💰 Any production deployment
+- 💰 Internal business tools
+- 💰 SaaS / PaaS / API products
+- 💰 Customer-facing applications
+- 💰 Integration into any commercial product
+- 💰 Any use within an organization with >1 employee
 
-| Tier | Price | Use Case |
-|:-----|:------|:---------|
-| Indie | $499/year | Solo developers, <$100K revenue |
-| Startup | $2,999/year | Teams up to 25, <$5M revenue |
-| Enterprise | $14,999/year | Unlimited seats, unlimited revenue |
-| OEM / White-Label | Custom pricing | Embedding in your product |
+### ⚠️ Anti-Circumvention Protection
+- 🔒 This license **CANNOT be removed** from forked or cloned copies
+- 🔒 ALL derivative works inherit this license automatically
+- 🔒 Removing copyright headers violates copyright law
+- 🔒 Every source file contains embedded copyright notices
+
+### 💼 Commercial License Pricing
+
+| Tier | Price | For |
+|:-----|:------|:----|
+| **Indie** | $499/year | Solo developer, <$100K revenue |
+| **Startup** | $2,999/year | Up to 25 employees, <$5M revenue |
+| **Enterprise** | $14,999/year | Unlimited seats, unlimited revenue |
+| **OEM / White-Label** | Custom pricing | Embedding in your product |
+| **Full IP Buyout** | $500K+ | Complete intellectual property transfer |
 
 ### 📬 Contact for Licensing
 
-**Soumya Debnath** — Creator & Maintainer
+**Soumya Debnath** — Creator & Sole Rights Holder
 
 - 📧 Email: [soumyadebnath1661@gmail.com](mailto:soumyadebnath1661@gmail.com)
 - 📞 Phone / WhatsApp: [+91 7031648617](tel:+917031648617)
 - 🐙 GitHub: [github.com/itsoumya-d](https://github.com/itsoumya-d)
+
+---
+© 2024-2026 Soumya Debnath. All Rights Reserved.
 
