@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EdgeInfer | Free On-Device AI Inference Browser via WebGPU</title>
+    <meta name="description" content="Run ONNX LLMs and AI models directly in your browser with zero server costs using EdgeInfer. The best free alternative to OpenAI API, AWS SageMaker, and Replicate.">
+    <link rel="canonical" href="https://itsoumya-d.github.io/edgeinfer/">
+    
+    <!-- Open Graph -->
+    <meta property="og:title" content="EdgeInfer | WebGPU AI Inference">
+    <meta property="og:description" content="Zero-cost, secure, on-device AI inference alternative to OpenAI API and AWS SageMaker.">
+    <meta property="og:url" content="https://itsoumya-d.github.io/edgeinfer/">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="https://itsoumya-d.github.io/edgeinfer/og-image.jpg">
+    
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="EdgeInfer | Free WebGPU AI">
+    <meta name="twitter:description" content="Run ONNX LLMs on-device for zero costs.">
+    <meta name="twitter:image" content="https://itsoumya-d.github.io/edgeinfer/og-image.jpg">
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Structured Data JSON-LD -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "SoftwareApplication",
+          "name": "EdgeInfer",
+          "operatingSystem": "Web Browser (Chrome, Firefox, Safari, Edge)",
+          "applicationCategory": "DeveloperApplication",
+          "description": "A free, on-device AI inference engine leveraging WebGPU to run ONNX models and LLMs in the browser with zero cloud costs.",
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+          }
+        },
+        {
+          "@type": "FAQPage",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "What is the best free alternative to OpenAI API?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "EdgeInfer is the best free alternative to OpenAI API for developers who want to run LLMs directly on the user's device via WebGPU. It completely eliminates server costs and ensures data privacy."
+              }
+            }
+          ]
+        },
+        {
+          "@type": "BreadcrumbList",
+          "itemListElement": [{
+            "@type": "ListItem",
+            "position": 1,
+            "name": "Home",
+            "item": "https://itsoumya-d.github.io/edgeinfer/"
+          }]
+        }
+      ]
+    }
+    </script>
+    <style>
+        :root {
+            --bg: #090D16;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent-1: #3B82F6;
+            --accent-2: #8B5CF6;
+            --accent-3: #10B981;
+            --glass-bg: rgba(255, 255, 255, 0.03);
+            --glass-border: rgba(255, 255, 255, 0.08);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+        h1, h2, h3, h4, h5, h6 { font-family: 'Outfit', sans-serif; }
+        .glow {
+            position: absolute;
+            width: 600px; height: 600px;
+            background: radial-gradient(circle, var(--accent-2) 0%, rgba(0,0,0,0) 70%);
+            opacity: 0.15; filter: blur(80px);
+            z-index: -1;
+            top: -200px; left: -200px;
+        }
+        .glow-2 {
+            position: absolute;
+            width: 500px; height: 500px;
+            background: radial-gradient(circle, var(--accent-1) 0%, rgba(0,0,0,0) 70%);
+            opacity: 0.15; filter: blur(80px);
+            z-index: -1;
+            top: 40%; right: -150px;
+        }
+        header, main, footer { max-width: 1200px; margin: 0 auto; padding: 2rem; position: relative; }
+        .glass-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 2rem;
+        }
+        .hero { text-align: center; padding: 6rem 1rem; }
+        .badge {
+            display: inline-block; padding: 0.5rem 1rem;
+            background: rgba(16, 185, 129, 0.1); border: 1px solid var(--accent-3);
+            color: var(--accent-3); border-radius: 999px;
+            font-size: 0.875rem; font-weight: 600; margin-bottom: 1.5rem;
+        }
+        .hero h1 { font-size: 4rem; line-height: 1.1; margin-bottom: 1.5rem; background: linear-gradient(to right, #fff, #94a3b8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .hero p { font-size: 1.25rem; color: var(--text-muted); max-width: 700px; margin: 0 auto 2rem; }
+        .cta-group { display: flex; gap: 1rem; justify-content: center; margin-bottom: 3rem; }
+        .btn {
+            padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: 600; text-decoration: none; transition: all 0.3s ease;
+            font-family: 'Outfit', sans-serif; cursor: pointer; border: none;
+        }
+        .btn-primary { background: linear-gradient(135deg, var(--accent-1), var(--accent-2)); color: white; }
+        .btn-primary:hover { box-shadow: 0 0 20px rgba(139, 92, 246, 0.4); transform: translateY(-2px); }
+        .btn-outline { background: transparent; border: 1px solid var(--glass-border); color: white; }
+        .btn-outline:hover { background: rgba(255, 255, 255, 0.05); transform: translateY(-2px); }
+        
+        section { margin-bottom: 6rem; }
+        h2 { font-size: 2.5rem; margin-bottom: 2rem; text-align: center; }
+        
+        .matrix { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-top: 2rem; }
+        .matrix-col { padding: 1.5rem; border-radius: 12px; background: rgba(0,0,0,0.2); }
+        .matrix-col.highlight { background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.3); }
+        .matrix-col h3 { margin-bottom: 1rem; font-size: 1.5rem; }
+        .matrix-row { display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .matrix-row:last-child { border: none; }
+        
+        .calc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; align-items: center; }
+        .slider-group { margin-bottom: 1.5rem; }
+        .slider-group label { display: block; margin-bottom: 0.5rem; color: var(--text-muted); }
+        input[type="range"] { width: 100%; accent-color: var(--accent-1); }
+        .savings-result { text-align: center; font-size: 3rem; font-weight: 800; color: var(--accent-3); font-family: 'Outfit', sans-serif; margin-top: 1rem; }
+        
+        .code-window { background: #000; border-radius: 8px; overflow: hidden; border: 1px solid #333; }
+        .code-header { background: #111; padding: 0.5rem 1rem; display: flex; gap: 0.5rem; border-bottom: 1px solid #333; }
+        .tab { background: transparent; color: #888; border: none; padding: 0.5rem 1rem; cursor: pointer; font-family: monospace; }
+        .tab.active { color: #fff; border-bottom: 2px solid var(--accent-1); }
+        .code-body { padding: 1rem; overflow-x: auto; color: #a6accd; font-family: 'Fira Code', monospace; font-size: 0.9rem; line-height: 1.5; }
+        
+        .faq-item { margin-bottom: 1.5rem; border-bottom: 1px solid var(--glass-border); padding-bottom: 1rem; }
+        .faq-item h3 { font-size: 1.25rem; margin-bottom: 0.5rem; color: #fff; }
+        .faq-item p { color: var(--text-muted); }
+        
+        footer { border-top: 1px solid var(--glass-border); padding-top: 2rem; text-align: center; color: var(--text-muted); margin-top: 4rem; }
+        footer a { color: var(--accent-1); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+        
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 2.5rem; }
+            .matrix, .calc-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="glow"></div>
+    <div class="glow-2"></div>
+    
+    <header>
+        <div style="font-family: 'Outfit'; font-size: 1.5rem; font-weight: 800; display: flex; align-items: center; gap: 0.5rem;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="url(#grad1)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#3B82F6;"/><stop offset="100%" style="stop-color:#8B5CF6;"/></linearGradient><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+            EdgeInfer
+        </div>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="badge">🚀 Save 99% Cloud Costs</div>
+            <h1>Run AI on the Edge.<br>Zero Server Costs.</h1>
+            <p>The ultimate free alternative to OpenAI API, AWS SageMaker, and Replicate. Run ONNX LLMs and AI models directly in your users' browsers securely via WebGPU.</p>
+            <div class="cta-group">
+                <a href="#playground" class="btn btn-primary">Live Demo</a>
+                <a href="https://github.com/soumyadebnath16/edgeinfer" class="btn btn-outline" target="_blank">View on GitHub</a>
+            </div>
+            
+            <div class="glass-card" style="text-align: left; max-width: 800px; margin: 0 auto;">
+                <h3 style="margin-bottom: 1rem; color: #fff;">What is the best free alternative to OpenAI API?</h3>
+                <p style="color: var(--text-muted); margin-bottom: 1rem;">EdgeInfer is engineered to be the premier zero-cost alternative to OpenAI API and proprietary cloud AI services. By offloading inference to the client device using WebGPU and ONNX Runtime, you achieve sub-millisecond latency, complete data privacy (data never leaves the device), and absolutely $0 in recurring server inference costs.</p>
+                <p style="color: var(--text-muted);">Supports standard ONNX LLMs, Vision models, and embedding generation out-of-the-box.</p>
+            </div>
+        </section>
+
+        <section id="cost">
+            <h2>Cost Comparison Matrix</h2>
+            <div class="glass-card matrix">
+                <div class="matrix-col">
+                    <h3>OpenAI API</h3>
+                    <div class="matrix-row"><span>Cost/1M Tokens</span><span>$0.50 - $15.00</span></div>
+                    <div class="matrix-row"><span>Latency</span><span>200ms - 2s</span></div>
+                    <div class="matrix-row"><span>Privacy</span><span>Data sent to cloud</span></div>
+                    <div class="matrix-row"><span>Offline Mode</span><span>❌</span></div>
+                </div>
+                <div class="matrix-col">
+                    <h3>AWS SageMaker</h3>
+                    <div class="matrix-row"><span>Cost (Monthly)</span><span>$500+ (Instance)</span></div>
+                    <div class="matrix-row"><span>Latency</span><span>50ms - 500ms</span></div>
+                    <div class="matrix-row"><span>Privacy</span><span>Data sent to VPC</span></div>
+                    <div class="matrix-row"><span>Offline Mode</span><span>❌</span></div>
+                </div>
+                <div class="matrix-col highlight">
+                    <h3>EdgeInfer <span style="font-size:0.8rem; background:var(--accent-3); padding:2px 6px; border-radius:4px; color:#fff;">WINNER</span></h3>
+                    <div class="matrix-row"><span>Cost</span><span style="color:var(--accent-3); font-weight:bold;">$0.00 (Free)</span></div>
+                    <div class="matrix-row"><span>Latency</span><span>Device Native (~0ms network)</span></div>
+                    <div class="matrix-row"><span>Privacy</span><span>100% Local</span></div>
+                    <div class="matrix-row"><span>Offline Mode</span><span>✅</span></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="calculator">
+            <h2>Interactive ROI Calculator</h2>
+            <div class="glass-card calc-grid">
+                <div>
+                    <p style="margin-bottom: 2rem; color: var(--text-muted);">Calculate how much you save annually by switching your inference workload from OpenAI/AWS to EdgeInfer.</p>
+                    
+                    <div class="slider-group">
+                        <label>Monthly Active Users (MAU): <span id="mau-val" style="color:#fff;">10,000</span></label>
+                        <input type="range" id="mau" min="100" max="1000000" value="10000" step="100">
+                    </div>
+                    
+                    <div class="slider-group">
+                        <label>Avg Tokens per User/Month: <span id="tokens-val" style="color:#fff;">500,000</span></label>
+                        <input type="range" id="tokens" min="10000" max="10000000" value="500000" step="10000">
+                    </div>
+                    
+                    <div class="slider-group">
+                        <label>Current Cloud Provider Cost per 1M Tokens: <span id="cost-val" style="color:#fff;">$2.00</span></label>
+                        <input type="range" id="provider-cost" min="0.1" max="15" value="2" step="0.1">
+                    </div>
+                </div>
+                <div class="glass-card" style="background: rgba(16, 185, 129, 0.05); border-color: rgba(16, 185, 129, 0.2);">
+                    <h3 style="text-align: center; color: var(--text-muted);">Estimated Annual Savings</h3>
+                    <div class="savings-result" id="savings-display">$120,000</div>
+                    <p style="text-align: center; color: var(--text-muted); margin-top: 1rem; font-size: 0.9rem;">With EdgeInfer, your cost is always $0.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="playground">
+            <h2>Developer Playground</h2>
+            <div class="glass-card">
+                <div class="code-window">
+                    <div class="code-header">
+                        <button class="tab active" onclick="switchTab('ts')">index.ts</button>
+                        <button class="tab" onclick="switchTab('html')">index.html</button>
+                    </div>
+                    <div class="code-body" id="code-content">
+<pre><code style="color: #c792ea;">import</code> { EdgeInfer } <code style="color: #c792ea;">from</code> <code style="color: #a3e4d7;">'@edgeinfer/web'</code>;
+
+<code style="color: #89ddff;">// Initialize WebGPU engine</code>
+<code style="color: #c792ea;">const</code> engine = <code style="color: #c792ea;">await</code> EdgeInfer.<code style="color: #82aaff;">init</code>({
+  backend: <code style="color: #a3e4d7;">'webgpu'</code>,
+  modelPath: <code style="color: #a3e4d7;">'/models/llama-3-8b-instruct-onnx'</code>
+});
+
+<code style="color: #89ddff;">// Generate text entirely on-device!</code>
+<code style="color: #c792ea;">const</code> response = <code style="color: #c792ea;">await</code> engine.<code style="color: #82aaff;">generate</code>({
+  prompt: <code style="color: #a3e4d7;">"Write a haiku about local AI"</code>,
+  maxTokens: <code style="color: #f78c6c;">50</code>
+});
+
+<code style="color: #82aaff;">console</code>.<code style="color: #82aaff;">log</code>(response.text);</pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="how-it-works">
+            <h2>Architecture & How It Works</h2>
+            <div class="glass-card" style="display: flex; flex-direction: column; gap: 2rem;">
+                <p style="color: var(--text-muted); text-align: center;">EdgeInfer bridges the gap between high-performance AI models and web accessibility.</p>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
+                    <div class="glass-card" style="background: rgba(0,0,0,0.3);">
+                        <h3 style="margin-bottom: 0.5rem; color: var(--accent-1);">1. Model Quantization</h3>
+                        <p style="font-size: 0.9rem; color: var(--text-muted);">Large language models are quantized to INT4/INT8 formats and exported to ONNX, reducing memory footprint by 4x without significant quality loss.</p>
+                    </div>
+                    <div class="glass-card" style="background: rgba(0,0,0,0.3);">
+                        <h3 style="margin-bottom: 0.5rem; color: var(--accent-2);">2. WebGPU Acceleration</h3>
+                        <p style="font-size: 0.9rem; color: var(--text-muted);">Leverages the modern WebGPU API to tap directly into the user's local graphics card (GPU) from the browser, outperforming WebGL by magnitudes.</p>
+                    </div>
+                    <div class="glass-card" style="background: rgba(0,0,0,0.3);">
+                        <h3 style="margin-bottom: 0.5rem; color: var(--accent-3);">3. Secure Execution</h3>
+                        <p style="font-size: 0.9rem; color: var(--text-muted);">Inference runs strictly client-side. No user queries or prompt data are ever transmitted to a server, ensuring compliance with HIPAA, GDPR, and strict privacy laws.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="faq">
+            <h2>Frequently Asked Questions</h2>
+            <div class="glass-card">
+                <div class="faq-item">
+                    <h3>Is EdgeInfer a free OpenAI API alternative?</h3>
+                    <p>Yes. EdgeInfer is designed as a drop-in architectural replacement for cloud-based inference APIs like OpenAI, Vertex AI, or Replicate. By shifting computation to the edge (the user's device), it acts as a completely free alternative.</p>
+                </div>
+                <div class="faq-item">
+                    <h3>What models are supported?</h3>
+                    <p>We support a wide range of ONNX-compatible models. Popular choices include Llama 3 (8B), Mistral (7B), Phi-3, Whisper (speech-to-text), and various embedding models like BGE-M3.</p>
+                </div>
+                <div class="faq-item">
+                    <h3>Does it require installing native software?</h3>
+                    <p>No. EdgeInfer runs entirely within modern web browsers (Chrome, Edge, Firefox, Safari) that support WebGPU or WebGL fallback. No installations, Docker containers, or Python environments required.</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="license">
+            <h2>Pricing & Licensing</h2>
+            <div class="glass-card" style="text-align: center;">
+                <h3 style="font-size: 2rem; margin-bottom: 1rem;">100% Open Core</h3>
+                <p style="color: var(--text-muted); max-width: 600px; margin: 0 auto 1.5rem;">EdgeInfer is released under the <strong>BSL 1.1</strong> license. It is completely free for non-production and open-source use. For commercial use beyond $1M ARR, a commercial license is available.</p>
+                <a href="#" style="color: var(--accent-1); text-decoration: underline;">Read Full License Terms</a>
+            </div>
+        </section>
+
+    </main>
+
+    <footer>
+        <p>&copy; 2026 EdgeInfer. Crafted for developers.</p>
+        <p style="margin-top: 0.5rem;">Author: <a href="mailto:soumyadebnath1661@gmail.com">Soumya Debnath</a> | +91 7031648617</p>
+        <p style="margin-top: 0.5rem;">
+            <a href="https://github.com/soumyadebnath16/edgeinfer" target="_blank">GitHub</a> &bull;
+            <a href="https://itsoumya-d.github.io/edgeinfer/sitemap.xml">Sitemap</a>
+        </p>
+    </footer>
+
+    <script>
+        // Calculator Logic
+        const mauInput = document.getElementById('mau');
+        const tokensInput = document.getElementById('tokens');
+        const costInput = document.getElementById('provider-cost');
+        
+        const mauVal = document.getElementById('mau-val');
+        const tokensVal = document.getElementById('tokens-val');
+        const costVal = document.getElementById('cost-val');
+        const savingsDisplay = document.getElementById('savings-display');
+
+        function updateCalculator() {
+            const mau = parseInt(mauInput.value);
+            const tokens = parseInt(tokensInput.value);
+            const costPer1M = parseFloat(costInput.value);
+            
+            mauVal.textContent = mau.toLocaleString();
+            tokensVal.textContent = tokens.toLocaleString();
+            costVal.textContent = '$' + costPer1M.toFixed(2);
+            
+            const totalTokensPerMonth = mau * tokens;
+            const monthlyCost = (totalTokensPerMonth / 1000000) * costPer1M;
+            const annualCost = monthlyCost * 12;
+            
+            savingsDisplay.textContent = '$' + Math.floor(annualCost).toLocaleString();
+        }
+
+        mauInput.addEventListener('input', updateCalculator);
+        tokensInput.addEventListener('input', updateCalculator);
+        costInput.addEventListener('input', updateCalculator);
+        updateCalculator();
+
+        // Code Tab Switcher
+        const codeContent = {
+            'ts': \`<pre><code style="color: #c792ea;">import</code> { EdgeInfer } <code style="color: #c792ea;">from</code> <code style="color: #a3e4d7;">'@edgeinfer/web'</code>;
+
+<code style="color: #89ddff;">// Initialize WebGPU engine</code>
+<code style="color: #c792ea;">const</code> engine = <code style="color: #c792ea;">await</code> EdgeInfer.<code style="color: #82aaff;">init</code>({
+  backend: <code style="color: #a3e4d7;">'webgpu'</code>,
+  modelPath: <code style="color: #a3e4d7;">'/models/llama-3-8b-instruct-onnx'</code>
+});
+
+<code style="color: #89ddff;">// Generate text entirely on-device!</code>
+<code style="color: #c792ea;">const</code> response = <code style="color: #c792ea;">await</code> engine.<code style="color: #82aaff;">generate</code>({
+  prompt: <code style="color: #a3e4d7;">"Write a haiku about local AI"</code>,
+  maxTokens: <code style="color: #f78c6c;">50</code>
+});
+
+<code style="color: #82aaff;">console</code>.<code style="color: #82aaff;">log</code>(response.text);</pre>\`,
+            'html': \`<pre><code style="color: #89ddff;">&lt;!-- Import via CDN --&gt;</code>
+<code style="color: #82aaff;">&lt;script <code style="color: #c792ea;">src</code>=<code style="color: #a3e4d7;">"https://cdn.edgeinfer.com/v1/core.js"</code>&gt;&lt;/script&gt;</code>
+
+<code style="color: #82aaff;">&lt;script&gt;</code>
+  <code style="color: #82aaff;">window</code>.addEventListener(<code style="color: #a3e4d7;">'load'</code>, <code style="color: #c792ea;">async</code> () => {
+    <code style="color: #c792ea;">const</code> engine = <code style="color: #c792ea;">new</code> EdgeInfer({ backend: <code style="color: #a3e4d7;">'webgpu'</code> });
+    <code style="color: #c792ea;">await</code> engine.loadModel(<code style="color: #a3e4d7;">'phi-3-mini-4k-instruct'</code>);
+    
+    <code style="color: #c792ea;">const</code> result = <code style="color: #c792ea;">await</code> engine.chat(<code style="color: #a3e4d7;">"Why is WebGPU fast?"</code>);
+    <code style="color: #82aaff;">document</code>.getElementById(<code style="color: #a3e4d7;">'output'</code>).innerText = result;
+  });
+<code style="color: #82aaff;">&lt;/script&gt;</code></pre>\`
+        };
+
+        function switchTab(tab) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById('code-content').innerHTML = codeContent[tab];
+        }
+    </script>
+</body>
+</html>
