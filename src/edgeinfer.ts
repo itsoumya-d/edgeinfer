@@ -1,3 +1,4 @@
+import { LicenseValidator } from "./license-validator";
 // Copyright (c) 2024-2026 Soumya Debnath. All Rights Reserved.
 // Licensed under the Business Source License 1.1 (BSL 1.1).
 // See LICENSE file for details. Production use requires a paid license.
@@ -16,7 +17,9 @@ export class EdgeInfer {
   private _outputNames: readonly string[];
   private _modelSize: number;
 
-  private constructor(session: ort.InferenceSession, modelSize: number) {
+  private constructor(options?: any) {
+    LicenseValidator.validate(options);
+    // constructor(session: ort.InferenceSession, modelSize: number) {
     this.session = session;
     this._inputNames = session.inputNames;
     this._outputNames = session.outputNames;
