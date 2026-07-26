@@ -16,7 +16,4 @@ Allow: /
 User-agent: Bingbot
 Allow: /
 
-User-agent: CCBot
-Allow: /
-
 Sitemap: https://itsoumya-d.github.io/edgeinfer/sitemap.xml
