@@ -2,6 +2,8 @@ import * as ort from 'onnxruntime-web';
 import { ModelCache } from './model-cache';
 import { RuntimeManager } from './runtime-manager';
 import { ModelOptions, ClassificationResult, Detection } from './types';
+import { Tokenizer } from './tokenizer';
+import { ImageProcessor } from './image-processor';
 
 export class EdgeInfer {
   private session: ort.InferenceSession;
@@ -46,23 +48,65 @@ export class EdgeInfer {
   }
 
   async classify(text: string): Promise<ClassificationResult[]> {
-    throw new Error('Not implemented');
+    // Basic implementation assuming a text input model
+    const tokenizer = new Tokenizer({});
+    const inputIds = tokenizer.encode(text);
+    const result = await this.predict({ 'input_ids': inputIds });
+    const output = result[this.outputNames[0]];
+    
+    // Convert output tensor to probabilities/scores and labels
+    return Array.from(output || []).map((score, idx) => ({
+      label: `Class_${idx}`,
+      score
+    }));
   }
 
   async embed(text: string): Promise<Float32Array> {
-    throw new Error('Not implemented');
+    const tokenizer = new Tokenizer({});
+    const inputIds = tokenizer.encode(text);
+    const result = await this.predict({ 'input_ids': inputIds });
+    return result[this.outputNames[0]] || new Float32Array();
   }
 
   async sentiment(text: string): Promise<{ label: string; score: number }> {
-    throw new Error('Not implemented');
+    const results = await this.classify(text);
+    const best = results.reduce((prev, current) => (prev.score > current.score) ? prev : current, { label: 'unknown', score: 0 });
+    return {
+      label: best.label === 'Class_1' ? 'positive' : 'negative',
+      score: best.score
+    };
   }
 
   async classifyImage(imageData: ImageData): Promise<ClassificationResult[]> {
-    throw new Error('Not implemented');
+    const tensorData = ImageProcessor.imageDataToFloat32Array(imageData);
+    const result = await this.predict({ 'input': tensorData });
+    const output = result[this.outputNames[0]];
+    
+    return Array.from(output || []).map((score, idx) => ({
+      label: `Class_${idx}`,
+      score
+    })).sort((a, b) => b.score - a.score).slice(0, 5);
   }
 
   async detectObjects(imageData: ImageData): Promise<Detection[]> {
-    throw new Error('Not implemented');
+    const tensorData = ImageProcessor.imageDataToFloat32Array(imageData);
+    const result = await this.predict({ 'input': tensorData });
+    // Assuming output format is [x, y, w, h, score, class_id] for each detection
+    const output = result[this.outputNames[0]];
+    const detections: Detection[] = [];
+    
+    if (output) {
+      for (let i = 0; i < output.length; i += 6) {
+        if (output[i + 4] > 0.5) {
+          detections.push({
+            bbox: [output[i], output[i+1], output[i+2], output[i+3]],
+            score: output[i+4],
+            label: `Object_${Math.round(output[i+5])}`
+          });
+        }
+      }
+    }
+    return detections;
   }
 
   get inputNames(): readonly string[] { return this._inputNames; }
