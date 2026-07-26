@@ -343,50 +343,21 @@ We welcome community contributions! Please read our [Contributing Guidelines](CO
 
 ---
 
-## ⚖️ License — Business Source License 1.1 (BSL 1.1)
+## ⚖️ License — Business Source License 1.1
 
-> **This is NOT open-source software. Source code is available for viewing, but ALL production use requires a paid license.**
-
-This project uses the **[Business Source License 1.1](https://mariadb.com/bsl11/)** — the same license trusted by HashiCorp (Terraform), Sentry, CockroachDB, and MariaDB.
-
-### What You CAN Do (Free)
-- ✅ View, read, and study the source code
-- ✅ Run for personal, non-commercial evaluation and testing
-- ✅ Use for academic research and education
-- ✅ Contribute improvements via pull requests
-
-### What REQUIRES a Paid License
-- 💰 Any production deployment
-- 💰 Internal business tools
-- 💰 SaaS / PaaS / API products
-- 💰 Customer-facing applications
-- 💰 Integration into any commercial product
-- 💰 Any use within an organization with >1 employee
-
-### ⚠️ Anti-Circumvention Protection
-- 🔒 This license **CANNOT be removed** from forked or cloned copies
-- 🔒 ALL derivative works inherit this license automatically
-- 🔒 Removing copyright headers violates copyright law
-- 🔒 Every source file contains embedded copyright notices
-
-### 💼 Commercial License Pricing
+> **Source-available, NOT open-source. All production use requires a paid license.**
+> Replaces: OpenAI API, SageMaker
 
 | Tier | Price | For |
 |:-----|:------|:----|
 | **Indie** | $499/year | Solo developer, <$100K revenue |
-| **Startup** | $2,999/year | Up to 25 employees, <$5M revenue |
-| **Enterprise** | $14,999/year | Unlimited seats, unlimited revenue |
-| **OEM / White-Label** | Custom pricing | Embedding in your product |
-| **Full IP Buyout** | $500K+ | Complete intellectual property transfer |
+| **Startup** | $3,999/year | Up to 10-25 devs, <$5M revenue |
+| **Enterprise** | $19,999/year | Unlimited seats, unlimited revenue |
+| **OEM / White-Label** | $39,999/year | Embed in your product |
+| **Full IP Buyout** | $3,000,000 | Complete ownership transfer |
 
-### 📬 Contact for Licensing
+**Free use limited to:** Personal evaluation, academic research, contributing via PRs.
 
-**Soumya Debnath** — Creator & Sole Rights Holder
+📧 [soumyadebnath1661@gmail.com](mailto:soumyadebnath1661@gmail.com) · 📞 [+91 7031648617](tel:+917031648617) · 🐙 [github.com/itsoumya-d](https://github.com/itsoumya-d)
 
-- 📧 Email: [soumyadebnath1661@gmail.com](mailto:soumyadebnath1661@gmail.com)
-- 📞 Phone / WhatsApp: [+91 7031648617](tel:+917031648617)
-- 🐙 GitHub: [github.com/itsoumya-d](https://github.com/itsoumya-d)
-
----
 © 2024-2026 Soumya Debnath. All Rights Reserved.
-

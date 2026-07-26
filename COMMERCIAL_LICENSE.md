@@ -1,44 +1,52 @@
-# Commercial License Agreement
+# Commercial License — EdgeInfer
 
-## Why Commercial License?
+> Replaces: OpenAI API ($0.01-$0.06/1K tokens), AWS SageMaker ($0.046/hr+), Google Vertex AI.
+> EdgeInfer runs ONNX AI models directly in the browser via WebAssembly/WebGPU. Zero API costs. 100% private.
 
-This software is released under **AGPL-3.0**, which requires any application using it — including SaaS products — to open-source their ENTIRE codebase. If you want to keep your code proprietary, you need a commercial license.
+## Pricing
 
-## License Tiers
+| Tier | Price | What You Get |
+|:-----|:------|:-------------|
+| **Indie** | $499/year | 1 developer, 1 application |
+| **Startup** | $3,999/year | Up to 15 developers, 5 applications |
+| **Enterprise** | $19,999/year | Unlimited developers, unlimited apps, dedicated integration support |
+| **Platform / OEM** | $39,999/year | White-label rights, embed in your product, redistribute |
+| **Full IP Buyout** | $3,000,000 | Complete intellectual property transfer |
 
-| Tier | Annual Price | Conditions |
-|:-----|:-------------|:-----------|
-| **Indie** | $499/year | Solo developer or team of 1. Company revenue under $100K/year. |
-| **Startup** | $2,999/year | Teams up to 25 people. Company revenue under $5M/year. |
-| **Enterprise** | $14,999/year | Unlimited team size. Unlimited revenue. Priority support included. |
-| **OEM / White-Label** | Custom | Embedding this software inside your product for resale. Contact for pricing. |
-| **Full IP Buyout** | $500K+ | Complete intellectual property transfer. Exclusive ownership. |
+### Why This Pricing?
+
+A company running 1M inference requests/day via OpenAI:
+- **OpenAI GPT-4o-mini**: ~$600/day ($219,000/year)
+- **AWS SageMaker**: ~$400/day ($146,000/year)
+- **EdgeInfer Enterprise**: $19,999/**year** (saving $126K–$199K/year + zero data privacy risk)
+
+---
 
 ## What the Commercial License Includes
 
 - ✅ Use in closed-source / proprietary applications
-- ✅ Use in SaaS products without AGPL obligations
+- ✅ Use in SaaS products without open-source obligations
 - ✅ Modify and create derivative works (private)
 - ✅ Internal business use without public disclosure
-- ✅ Priority email support (48hr response for Enterprise)
+- ✅ Priority email support (Enterprise: 24hr response)
 - ✅ License covers all versions released during the license period
 
 ## What is NOT Allowed Without a Commercial License
 
-- ❌ Using this software in a proprietary product under AGPL-3.0
-- ❌ Removing or modifying the copyright notices
+- ❌ Any production, staging, or live deployment
+- ❌ Integration into revenue-generating services
+- ❌ Internal tools used by employees (>1 person org)
+- ❌ Removing or modifying copyright notices
 - ❌ Sublicensing to third parties (OEM tier required)
 - ❌ Claiming authorship of this software
 
 ## Contact
 
-**Soumya Debnath** — Creator & Rights Holder
+**Soumya Debnath** — Creator & Sole Rights Holder
 
 - 📧 Email: [soumyadebnath1661@gmail.com](mailto:soumyadebnath1661@gmail.com)
 - 📞 Phone / WhatsApp: [+91 7031648617](tel:+917031648617)
 - 🐙 GitHub: [github.com/itsoumya-d](https://github.com/itsoumya-d)
 
 ---
-
 © 2024-2026 Soumya Debnath. All Rights Reserved.
-

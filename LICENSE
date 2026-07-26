@@ -48,18 +48,6 @@ Any use of the Licensed Work in violation of this License will automatically
 terminate your rights under this License for the current and all other
 versions of the Licensed Work.
 
-This License does not grant you any right in any trademark or logo of
-Licensor or its affiliates (provided that you may use a trademark or logo of
-Licensor as expressly required by this License).
-
-TO THE EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSED WORK IS PROVIDED ON
-AN "AS IS" BASIS. LICENSOR HEREBY DISCLAIMS ALL WARRANTIES AND CONDITIONS,
-EXPRESS OR IMPLIED, INCLUDING (WITHOUT LIMITATION) WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, AND
-TITLE.
-
------------------------------------------------------------------------------
-
 ANTI-CIRCUMVENTION CLAUSE
 
 1. This License CANNOT be removed, modified, or circumvented by any means,
@@ -73,44 +61,15 @@ ANTI-CIRCUMVENTION CLAUSE
    headers in source files, or any attribution to the Licensor constitutes
    a violation of this License and applicable copyright law.
 
-4. "Production Use" means any use of the Licensed Work or derivative works
-   in a live, staging, or production environment, including but not limited
-   to:
-   - Running as part of a SaaS, PaaS, or IaaS offering
-   - Internal business tools used by employees
-   - Customer-facing applications
-   - Revenue-generating services
-   - Any deployment accessible by end users
-   - Integration into any commercial product
-   - Use within any organization with more than 1 employee
+4. "Production Use" means any use in a live, staging, or production
+   environment, including SaaS, internal tools, or customer-facing apps.
 
-5. The ONLY permitted free use is:
-   - Personal, non-commercial evaluation and testing
-   - Academic research and education
-   - Contributing back to this repository via pull requests
+5. The ONLY permitted free use is personal evaluation, academic research,
+   and contributing back via pull requests.
 
------------------------------------------------------------------------------
+Notice: The Business Source License is not an Open Source license. The
+Licensed Work will be made available under the Change License on the
+Change Date.
 
-COMMERCIAL LICENSING
+© 2024-2026 Soumya Debnath. All Rights Reserved.
 
-For production use, contact the Licensor:
-
-  Soumya Debnath
-  Email:    soumyadebnath1661@gmail.com
-  Phone:    +91 7031648617
-  GitHub:   https://github.com/itsoumya-d
-
-Pricing:
-  Indie       ($499/year)    — Solo developer, revenue under $100K
-  Startup     ($2,999/year)  — Up to 25 employees, revenue under $5M
-  Enterprise  ($14,999/year) — Unlimited seats, unlimited revenue
-  OEM         (Custom)       — Embedding in your product for resale
-  IP Buyout   ($500K+)       — Full intellectual property transfer
-
------------------------------------------------------------------------------
-
-Notice
-
-The Business Source License (this document, or the "License") is not an Open
-Source license. However, the Licensed Work will eventually be made available
-under an Open Source License, as stated in this License.
