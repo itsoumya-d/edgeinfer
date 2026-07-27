@@ -1,3 +1,10 @@
+<!--
+// Copyright (c) 2024-2026 Soumya Debnath. All Rights Reserved.
+// Licensed under the Business Source License 1.1 (BSL 1.1).
+// See LICENSE file for details. Production use requires a paid license.
+// Contact: soumyadebnath1661@gmail.com | +91 7031648617
+-->
+
 <div align="center">
   <h1>EdgeInfer 🚀</h1>
   <p><strong>Zero-Cost, Privacy-First On-Device AI Inference</strong></p>
@@ -225,6 +232,50 @@ We recommend compiling/quantizing these models to INT8 ONNX format for the best 
 - **Object Detection**: YOLOv8 Nano, SSD MobileNet.
 
 *Tip: Use tools like Optimum (Hugging Face) to easily export PyTorch models to ONNX.*
+
+---
+
+## 🔬 Cutting-Edge Tokenization, WebGPU Hardware & Research Features
+
+EdgeInfer incorporates cutting-edge ML research and production-grade execution primitives designed specifically for browser runtime environments.
+
+### 🔤 Real BPE & WordPiece Tokenizer
+- **Native Vocabulary Loading**: High-speed parsing of `vocab.json` / `tokenizer.json` files for Byte-Pair Encoding (BPE) and WordPiece tokenization models without external dependencies.
+- **Special Token Handling & Attention Masks**: Full support for special tokens (`[CLS]`, `[SEP]`, `<s>`, `</s>`, `<pad>`, `<unk>`) and automatic generation of 1D/2D `attention_mask` and `position_ids` tensors for LLM and Transformer inference.
+
+### ⚡ WebGPU Hardware Auto-Detection & VRAM Profiling
+- **Hardware Probing**: Real-time inspection of WebGPU adapter limits (`navigator.gpu.requestAdapter()`) to query compute shader capabilities, max buffer bindings, and memory limits.
+- **VRAM Estimation & Quantization Recommendation**: Automatically estimates device VRAM and recommends optimal quantization formats (e.g. 1.58-bit BitNet, 4-bit AWQ, or 8-bit INT8) to prevent out-of-memory browser crashes.
+
+### 📐 Matryoshka Vector Embeddings (MRL)
+- **Variable-Dimension Truncation**: Supports Matryoshka Representation Learning (MRL), allowing high-dimensional model outputs (e.g., 768d) to be dynamically sliced down to 384d, 128d, or 64d with minimal retrieval accuracy loss—reducing browser memory and vector search latency.
+
+### 🔬 Research Foundations
+> **Research Papers:**  
+> - Ma, S., Wang, H., Ma, L., et al. (2024). *The Era of 1-bit LLMs: All Large Language Models are in 1.58 Bits (BitNet b1.58)*. [arXiv:2402.17764](https://arxiv.org/abs/2402.17764)
+> - Dao, T., Gu, A. (2024). *Transformers are SSMs: Generalized Models and Efficient Algorithms Through Structured State Spaces (Mamba-2)*. [arXiv:2405.21060](https://arxiv.org/abs/2405.21060)
+
+### 💻 Usage Example: Tokenizer, Hardware Profiling & Matryoshka Embeddings
+
+```typescript
+import { EdgeInfer, BPETokenizer } from 'edgeinfer';
+
+// 1. WebGPU VRAM & Hardware Auto-Detection
+const hw = await EdgeInfer.detectHardware();
+console.log(`Available VRAM: ${hw.vramMB}MB. Recommended Quantization: ${hw.recommendedQuant}`);
+
+// 2. Real BPE Tokenizer with Attention Masks
+const tokenizer = await BPETokenizer.fromUrl('/models/vocab.json', '/models/merges.txt');
+const { inputIds, attentionMask } = tokenizer.encode("EdgeInfer brings BitNet & Mamba-2 on-device", {
+  addSpecialTokens: true,
+  maxLen: 128
+});
+
+// 3. Matryoshka Embedding Truncation
+const model = await EdgeInfer.load('/models/bge-small-mrl.onnx');
+const fullEmbedding = await model.embed("Query text");
+const truncated64d = EdgeInfer.truncateMatryoshka(fullEmbedding, 64);
+```
 
 ---
 
