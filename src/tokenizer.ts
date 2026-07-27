@@ -124,6 +124,15 @@ export class Tokenizer {
     // Truncate to maxLength
     const truncated = tokenIds.slice(0, maxLen);
     
+    // Guard against empty encoding producing empty tensors (crashes ONNX)
+    if (truncated.length === 0) {
+      const fallback = new Int32Array([this.padTokenId]);
+      return {
+        inputIds: fallback,
+        attentionMask: new Int32Array([0]),
+      };
+    }
+
     // Build attention mask
     const attentionMask = new Int32Array(padding ? maxLen : truncated.length);
     attentionMask.fill(1, 0, truncated.length);
@@ -177,7 +186,10 @@ export class Tokenizer {
    */
   private preTokenize(text: string): string[] {
     const normalized = text.toLowerCase().trim();
+    if (!normalized) return [];
+    
     // Split on whitespace and keep punctuation as separate tokens
+    // Uses Unicode-aware patterns to handle emojis, CJK, Arabic, accented chars
     const tokens: string[] = [];
     let current = '';
 
@@ -185,7 +197,7 @@ export class Tokenizer {
       if (/\s/.test(char)) {
         if (current) tokens.push(current);
         current = '';
-      } else if (/[.,!?;:'"()\[\]{}\-\/]/.test(char)) {
+      } else if (/[.,!?;:'"()\[\]{}\-\/\\@#$%^&*~`|<>]/.test(char) || /\p{P}/u.test(char)) {
         if (current) tokens.push(current);
         tokens.push(char);
         current = '';
