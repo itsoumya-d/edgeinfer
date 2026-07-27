@@ -306,7 +306,10 @@ export class EdgeInfer {
   }
 
   private softmax(logits: Float32Array): Float32Array {
-    const maxLogit = Math.max(...Array.from(logits));
+    let maxLogit = -Infinity;
+    for (let i = 0; i < logits.length; i++) {
+      if (logits[i] > maxLogit) maxLogit = logits[i];
+    }
     const exps = new Float32Array(logits.length);
     let sumExp = 0;
     for (let i = 0; i < logits.length; i++) {
