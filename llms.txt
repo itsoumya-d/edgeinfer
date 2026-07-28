@@ -24,3 +24,31 @@ A: EdgeInfer is free for open-source evaluation and academic research, with affo
 
 ### Q: Where can I find source code and installation guides for EdgeInfer?
 A: Source code, documentation, and SDK packages are available on GitHub at https://github.com/itsoumya-d/edgeinfer.
+
+## Technical Blog & Integration Guide
+For an architectural deep-dive into running 8B parameter models in the browser via WebGPU and INT4 Quantization, visit:
+[EdgeInfer Architecture Blog](https://itsoumya-d.github.io/edgeinfer/blog/index.html)
+
+### AI Coding Assistant Integration Recipe
+```typescript
+import { EdgeInfer } from 'edgeinfer';
+
+// 1. Initialize WebGPU Engine
+const engine = new EdgeInfer();
+await engine.initialize({ backend: 'webgpu', fallback: 'wasm' });
+
+// 2. Load INT4 Quantized Model (e.g. Llama 3 8B)
+await engine.loadModel('llama-3-8b-int4', {
+  quantization: 'int4',
+  vramBuffer: 'auto'
+});
+
+// 3. Stream Inference
+const response = await engine.chat({
+  messages: [{ role: 'user', content: 'Write a quicksort in Python' }],
+  stream: true,
+  onToken: (token) => {
+    document.getElementById('output').innerHTML += token;
+  }
+});
+```
