@@ -613,6 +613,23 @@
             color: var(--text-heading);
         }
 
+        /* NEW ADDITIONS */
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-4px); }
+        }
+        .chat-message .dot {
+            animation: bounce 1s infinite;
+        }
+        @keyframes pulse-border {
+            0% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(6, 182, 212, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0); }
+        }
+        .webgpu-supported {
+            border-color: var(--tertiary) !important;
+            animation: pulse-border 2s infinite;
+        }
         
     </style>
     <link rel="author" type="text/plain" href="https://itsoumya-d.github.io/edgeinfer/llms.txt">
@@ -637,13 +654,38 @@
 
     <main>
         <section class="hero container">
+            <canvas id="particle-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none;"></canvas>
             <div class="hero-badge gsap-hero">v2.0 WebGPU Engine Live</div>
             <h1 class="gsap-hero">Run AI in the browser.<br><span class="text-gradient">Zero API calls. Zero cost.</span></h1>
-            <p class="gsap-hero">EdgeInfer is the premier on-device inference engine. Deploy massive models directly to your users' devices with WebGPU and WASM SIMD.</p>
+            
+            <div class="hero-cost-provocative gsap-hero" style="margin: 24px auto; z-index: 1;">
+                <p style="font-size: 18px; font-weight: 500; color: var(--text-heading); margin-bottom: 8px;">OpenAI charges $20/million tokens. Your GPU does it for free.</p>
+                <p style="font-size: 24px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--primary);">Tokens generated on YOUR device: <span id="hero-token-counter">0</span></p>
+            </div>
+
+            <p class="gsap-hero" style="margin-top: 0;">EdgeInfer is the premier on-device inference engine. Deploy massive models directly to your users' devices with WebGPU and WASM SIMD.</p>
             
             <div class="hero-ctas gsap-hero">
                 <a href="#docs" class="btn btn-primary">Get Started</a>
                 <a href="#demo" class="btn btn-secondary">View Benchmarks</a>
+            </div>
+
+            <div class="chat-playground gsap-hero" style="position: relative; z-index: 1; max-width: 600px; margin: 0 auto 48px; background: rgba(255,255,255,0.02); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(236,72,153,0.3); border-radius: 16px; padding: 24px; text-align: left; box-shadow: 0 0 20px rgba(236,72,153,0.1);">
+                <div class="chat-message user-message" style="margin-bottom: 16px; background: rgba(255,255,255,0.05); padding: 12px 16px; border-radius: 12px; border-bottom-right-radius: 4px; width: fit-content; margin-left: auto;">
+                    <span style="font-weight: 500; color: var(--text-heading); font-size: 14px;">User: Explain quantum computing in simple terms</span>
+                </div>
+                <div class="chat-message ai-message" style="margin-bottom: 16px; background: rgba(139,92,246,0.1); padding: 12px 16px; border-radius: 12px; border-bottom-left-radius: 4px; width: fit-content;">
+                    <span style="font-weight: 500; color: var(--secondary); font-size: 14px; margin-bottom: 4px; display: block;">EdgeInfer AI:</span>
+                    <span id="ai-response-text" style="color: var(--text-heading); font-size: 15px; font-family: 'JetBrains Mono', monospace;"></span>
+                    <span id="typing-indicator" style="display: inline-flex; align-items: center; gap: 4px; margin-left: 8px;">
+                        <span class="dot" style="width:6px;height:6px;background:var(--secondary);border-radius:50%;"></span>
+                        <span class="dot" style="width:6px;height:6px;background:var(--secondary);border-radius:50%;animation-delay:0.2s"></span>
+                        <span class="dot" style="width:6px;height:6px;background:var(--secondary);border-radius:50%;animation-delay:0.4s"></span>
+                    </span>
+                </div>
+                <div style="text-align: center; margin-top: 16px;">
+                    <span style="display: inline-block; padding: 4px 12px; background: rgba(6,182,212,0.1); border: 1px solid rgba(6,182,212,0.2); border-radius: 9999px; font-size: 12px; color: var(--tertiary);">Running on YOUR GPU — $0 API cost</span>
+                </div>
             </div>
 
             <div class="demo-box gsap-hero">
@@ -699,6 +741,54 @@
                     <div class="arch-icon">🛡️</div>
                     <h3>WASM Standard</h3>
                     <p style="margin-top:12px; font-size:14px;">Bulletproof fallback ensuring your ML features work on 100% of modern web browsers.</p>
+                </div>
+            </div>
+
+            <div class="device-detection-card gsap-section" style="margin-top: 48px; background: var(--card-bg); border: 1px solid var(--border-subtle); border-radius: 16px; padding: 32px; display: flex; flex-direction: column; align-items: center; text-align: center;">
+                <h3 style="margin-bottom: 24px;">Your Device Capabilities</h3>
+                <div style="display: flex; gap: 24px; flex-wrap: wrap; justify-content: center; margin-bottom: 24px;">
+                    <div style="padding: 16px; background: rgba(255,255,255,0.02); border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); min-width: 140px;">
+                        <div style="font-size: 12px; color: var(--text-body); margin-bottom: 4px;">WebGPU</div>
+                        <div id="detect-webgpu" style="font-size: 18px; font-weight: 700; color: var(--text-heading);">Detecting...</div>
+                    </div>
+                    <div style="padding: 16px; background: rgba(255,255,255,0.02); border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); min-width: 140px;">
+                        <div style="font-size: 12px; color: var(--text-body); margin-bottom: 4px;">CPU Cores</div>
+                        <div id="detect-cores" style="font-size: 18px; font-weight: 700; color: var(--text-heading);">Detecting...</div>
+                    </div>
+                    <div style="padding: 16px; background: rgba(255,255,255,0.02); border-radius: 12px; border: 1px solid rgba(255,255,255,0.05); min-width: 140px;">
+                        <div style="font-size: 12px; color: var(--text-body); margin-bottom: 4px;">Memory</div>
+                        <div id="detect-memory" style="font-size: 18px; font-weight: 700; color: var(--text-heading);">Detecting...</div>
+                    </div>
+                </div>
+                <div style="padding: 12px 24px; background: rgba(236,72,153,0.1); border-radius: 8px; color: var(--primary); font-size: 14px; font-weight: 500;">
+                    Recommended: <span id="detect-rec">INT4 Quantization</span>
+                </div>
+            </div>
+
+            <div class="pipeline-section gsap-section" style="margin-top: 64px;">
+                <h3 style="text-align: center; margin-bottom: 48px;">Inference Pipeline</h3>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; position: relative; max-width: 800px; margin: 0 auto; gap: 16px;">
+                    <!-- Background Track -->
+                    <div style="position: absolute; top: 24px; left: 12.5%; right: 12.5%; height: 2px; background: var(--border-subtle); z-index: -1;" class="pipeline-track-bg"></div>
+                    <!-- Progress Fill -->
+                    <div style="position: absolute; top: 24px; left: 12.5%; width: 0%; height: 2px; background: var(--tertiary); z-index: -1;" class="pipeline-progress"></div>
+                    
+                    <div class="pipeline-step" style="text-align: center; flex: 1; opacity: 0.5; transition: opacity 0.3s;">
+                        <div class="step-icon" style="width: 48px; height: 48px; border-radius: 50%; background: var(--card-bg); border: 2px solid var(--border-subtle); margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; font-size: 20px; transition: all 0.3s;">📥</div>
+                        <div style="font-size: 14px; font-weight: 500; color: var(--text-heading);">1. Download Model</div>
+                    </div>
+                    <div class="pipeline-step" style="text-align: center; flex: 1; opacity: 0.5; transition: opacity 0.3s;">
+                        <div class="step-icon" style="width: 48px; height: 48px; border-radius: 50%; background: var(--card-bg); border: 2px solid var(--border-subtle); margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; font-size: 20px; transition: all 0.3s;">🗜️</div>
+                        <div style="font-size: 14px; font-weight: 500; color: var(--text-heading);">2. Quantize to INT4</div>
+                    </div>
+                    <div class="pipeline-step" style="text-align: center; flex: 1; opacity: 0.5; transition: opacity 0.3s;">
+                        <div class="step-icon" style="width: 48px; height: 48px; border-radius: 50%; background: var(--card-bg); border: 2px solid var(--border-subtle); margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; font-size: 20px; transition: all 0.3s;">🚀</div>
+                        <div style="font-size: 14px; font-weight: 500; color: var(--text-heading);">3. Load to GPU</div>
+                    </div>
+                    <div class="pipeline-step" style="text-align: center; flex: 1; opacity: 0.5; transition: opacity 0.3s;">
+                        <div class="step-icon" style="width: 48px; height: 48px; border-radius: 50%; background: var(--card-bg); border: 2px solid var(--border-subtle); margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; font-size: 20px; transition: all 0.3s;">💬</div>
+                        <div style="font-size: 14px; font-weight: 500; color: var(--text-heading);">4. Stream Tokens</div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -972,6 +1062,156 @@ console.<span class="syntax-function">log</span>(result); <span class="syntax-co
                 answer.style.display = 'block';
                 span.innerText = '-';
             }
+        }
+
+        // --- NEW ENHANCEMENTS LOGIC ---
+
+        // 1. Particle Canvas Setup
+        const canvas = document.getElementById('particle-canvas');
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            let width = canvas.width = window.innerWidth;
+            let height = canvas.height = window.innerHeight;
+            const particles = [];
+            
+            window.addEventListener('resize', () => {
+                width = canvas.width = window.innerWidth;
+                height = canvas.height = window.innerHeight;
+            });
+
+            class Particle {
+                constructor() {
+                    this.x = Math.random() * width;
+                    this.y = Math.random() * height;
+                    this.vx = (Math.random() - 0.5) * 0.5;
+                    this.vy = (Math.random() - 0.5) * 0.5;
+                    this.radius = Math.random() * 1.5 + 1;
+                    this.opacity = Math.random() * 0.5 + 0.1;
+                }
+                update() {
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    if (this.x < 0 || this.x > width) this.vx *= -1;
+                    if (this.y < 0 || this.y > height) this.vy *= -1;
+                }
+                draw() {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(236, 72, 153, ${this.opacity})`;
+                    ctx.fill();
+                }
+            }
+
+            for (let i = 0; i < 50; i++) {
+                particles.push(new Particle());
+            }
+
+            function animateParticles() {
+                ctx.clearRect(0, 0, width, height);
+                
+                for (let i = 0; i < particles.length; i++) {
+                    particles[i].update();
+                    particles[i].draw();
+                    
+                    for (let j = i + 1; j < particles.length; j++) {
+                        const dx = particles[i].x - particles[j].x;
+                        const dy = particles[i].y - particles[j].y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+                        
+                        if (dist < 100) {
+                            ctx.beginPath();
+                            ctx.moveTo(particles[i].x, particles[i].y);
+                            ctx.lineTo(particles[j].x, particles[j].y);
+                            ctx.strokeStyle = `rgba(236, 72, 153, ${0.1 * (1 - dist / 100)})`;
+                            ctx.stroke();
+                        }
+                    }
+                }
+                requestAnimationFrame(animateParticles);
+            }
+            animateParticles();
+        }
+
+        // 2. Chat Playground Typewriter
+        const fullText = "Quantum computing uses quantum bits (qubits) to perform calculations much faster than classical computers for certain tasks by exploiting quantum mechanics like superposition and entanglement.";
+        const aiResponseText = document.getElementById('ai-response-text');
+        const typingIndicator = document.getElementById('typing-indicator');
+        
+        if (aiResponseText && typingIndicator) {
+            let charIndex = 0;
+            setTimeout(() => {
+                typingIndicator.style.display = 'none';
+                const typeInterval = setInterval(() => {
+                    if (charIndex < fullText.length) {
+                        aiResponseText.textContent += fullText.charAt(charIndex);
+                        charIndex++;
+                    } else {
+                        clearInterval(typeInterval);
+                    }
+                }, 30);
+            }, 2000);
+        }
+
+        // 3. Tokens generated Counter (Hero)
+        const heroTokenCounter = document.getElementById('hero-token-counter');
+        if (heroTokenCounter) {
+            gsap.to({ val: 0 }, {
+                val: 1247832,
+                duration: 3,
+                ease: "power2.out",
+                onUpdate: function() {
+                    heroTokenCounter.innerHTML = Math.floor(this.targets()[0].val).toLocaleString();
+                }
+            });
+        }
+
+        // 4. Device Detection
+        const detectWebGpu = document.getElementById('detect-webgpu');
+        if (detectWebGpu) {
+            const webgpuSupport = !!navigator.gpu;
+            const cores = navigator.hardwareConcurrency || 'Unknown';
+            const memory = navigator.deviceMemory ? `${navigator.deviceMemory} GB` : 'Unknown';
+            
+            detectWebGpu.textContent = webgpuSupport ? '✅ Supported' : '❌ Not Supported';
+            document.getElementById('detect-cores').textContent = cores;
+            document.getElementById('detect-memory').textContent = memory;
+            
+            if (webgpuSupport) {
+                document.querySelector('.device-detection-card').classList.add('webgpu-supported');
+                document.getElementById('detect-rec').textContent = 'INT8 or INT4 Quantization (WebGPU)';
+            } else {
+                document.getElementById('detect-rec').textContent = 'INT4 Quantization (WASM)';
+            }
+        }
+
+        // 5. Pipeline ScrollTrigger
+        const pipelineProgress = document.querySelector('.pipeline-progress');
+        if (pipelineProgress) {
+            gsap.to('.pipeline-progress', {
+                width: '100%',
+                scrollTrigger: {
+                    trigger: '.pipeline-section',
+                    start: 'top 75%',
+                    end: 'bottom 50%',
+                    scrub: true,
+                    onUpdate: (self) => {
+                        const steps = document.querySelectorAll('.pipeline-step');
+                        const progress = self.progress;
+                        steps.forEach((step, index) => {
+                            const stepThreshold = index / (steps.length - 1);
+                            if (progress >= stepThreshold - 0.1) {
+                                step.style.opacity = '1';
+                                step.querySelector('.step-icon').style.borderColor = 'var(--tertiary)';
+                                step.querySelector('.step-icon').style.color = 'var(--tertiary)';
+                            } else {
+                                step.style.opacity = '0.5';
+                                step.querySelector('.step-icon').style.borderColor = 'var(--border-subtle)';
+                                step.querySelector('.step-icon').style.color = '';
+                            }
+                        });
+                    }
+                }
+            });
         }
     </script>
 </body>
