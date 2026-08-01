@@ -1,6 +1,6 @@
 # Licensing
 
-Copyright (c) 2024-2026 Soumya Debnath <soumyadebnath1661@gmail.com>
+Copyright (c) 2024-2026 Soumya Debnath <soumyadebnath1619@gmail.com>
 
 This software is **dual-licensed**. You may use it under **either** of the following, at your option.
 
