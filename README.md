@@ -8,7 +8,7 @@
 # EdgeInfer
 
 <div align="center">
-  <p><strong>On-Device AI Inference via ONNX Runtime WebAssembly and WebGPU</strong></p>
+  <p><strong>EdgeInfer runs small ONNX models inside the browser on WebGPU or WebAssembly, so inference costs nothing per call and user data never leaves the device.</strong></p>
 
   [![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-red.svg)](https://mariadb.com/bsl11/)
   [![Status](https://img.shields.io/badge/status-pre--release-orange.svg)]()
