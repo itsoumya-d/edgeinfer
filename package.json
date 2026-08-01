@@ -5,9 +5,25 @@
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "src",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsup",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test tests/*.test.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/itsoumya-d/edgeinfer"
+  },
+  "homepage": "https://itsoumya-d.github.io/edgeinfer/",
+  "bugs": {
+    "url": "https://github.com/itsoumya-d/edgeinfer/issues"
   },
   "keywords": [
     "onnx",
@@ -16,7 +32,7 @@
     "inference",
     "ai"
   ],
-  "author": "",
+  "author": "Soumya Debnath",
   "license": "BSL-1.1",
   "devDependencies": {
     "tsup": "^8.0.0",
