@@ -1,7 +1,7 @@
 <!--
 // Copyright (c) 2024-2026 Soumya Debnath. All Rights Reserved.
-// Licensed under the Business Source License 1.1 (BSL 1.1).
-// See LICENSE file for details. Production use requires a paid license.
+// Dual-licensed: AGPL-3.0-or-later (free, see LICENSE) OR a commercial licence
+// (see COMMERCIAL_LICENSE.md) if you cannot meet the AGPL's source-disclosure terms.
 // Contact: soumyadebnath1661@gmail.com
 -->
 
@@ -10,7 +10,7 @@
 <div align="center">
   <p><strong>EdgeInfer runs small ONNX models inside the browser on WebGPU or WebAssembly, so inference costs nothing per call and user data never leaves the device.</strong></p>
 
-  [![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-red.svg)](https://mariadb.com/bsl11/)
+  [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
   [![Status](https://img.shields.io/badge/status-pre--release-orange.svg)]()
 </div>
 
@@ -207,19 +207,17 @@ Constructor takes `{ vocab, merges?, specialTokens?, maxLength?, padTokenId?, un
 
 ---
 
-## License — Business Source License 1.1
+## 📄 License
 
-> **Source-available, NOT open-source. Production use requires a paid license.**
+**Dual-licensed — choose either:**
 
-| Tier | Price | For |
-|---|---|---|
-| Indie | $499/year | Solo developer, <$100K revenue |
-| Startup | $3,999/year | Up to 10-25 devs, <$5M revenue |
-| Enterprise | $19,999/year | Unlimited seats, unlimited revenue |
-| OEM / White-Label | $39,999/year | Embed in your product |
+1. **[AGPL-3.0-or-later](LICENSE)** — free for any purpose, including commercial and production
+   use. No payment, no permission, no key required. The obligation it carries: if you modify this
+   software and let users interact with it over a network, you must offer those users your modified
+   source under the same licence.
 
-**Free use:** Personal evaluation, academic research, open-source contribution.
+2. **[Commercial licence](COMMERCIAL_LICENSE.md)** — for organisations that cannot or prefer not to
+   meet the AGPL's source-disclosure obligation. This buys an exception, not access.
 
-Contact: soumyadebnath1661@gmail.com | github.com/itsoumya-d
+Contributions are accepted under AGPL-3.0-or-later.
 
-© 2024-2026 Soumya Debnath. All Rights Reserved.
