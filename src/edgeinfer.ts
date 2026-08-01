@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 Soumya Debnath. All Rights Reserved.
 // Licensed under the Business Source License 1.1 (BSL 1.1).
 // See LICENSE file for details. Production use requires a paid license.
-// Contact: soumyadebnath1661@gmail.com | +91 7031648617
+// Contact: soumyadebnath1661@gmail.com
 
 import { LicenseValidator } from './license-validator';
 import * as ort from 'onnxruntime-web';
@@ -64,9 +64,13 @@ export class EdgeInfer {
    * Create an EdgeInfer instance from a pre-loaded model buffer.
    */
   static async fromBuffer(buffer: ArrayBuffer, options?: EdgeInferOptions): Promise<EdgeInfer> {
-    const caps = await RuntimeManager.detectCapabilities();
-    const session = await RuntimeManager.createSession(buffer, options?.executionProviders);
-    
+    // `provider` is the provider that actually created the session, which is
+    // not necessarily the detected preference — see RuntimeManager.createSession.
+    const { session, provider } = await RuntimeManager.createSession(
+      buffer,
+      options?.executionProviders
+    );
+
     // Load tokenizer if URL provided
     let tokenizer: Tokenizer | undefined;
     if (options?.tokenizerUrl) {
@@ -75,7 +79,7 @@ export class EdgeInfer {
       tokenizer = new Tokenizer(options.tokenizerConfig);
     }
 
-    return new EdgeInfer(session, buffer.byteLength, caps.provider, tokenizer);
+    return new EdgeInfer(session, buffer.byteLength, provider, tokenizer);
   }
 
   /**
@@ -88,10 +92,20 @@ export class EdgeInfer {
   /**
    * Low-level tensor inference.
    * Pass raw tensor inputs and get raw tensor outputs.
+   *
+   * `shapes` optionally gives the ONNX tensor shape per input name. When an
+   * input has no explicit shape it defaults to `[1, data.length]`, which is
+   * correct for 2-D sequence inputs (`input_ids`, `attention_mask`) but wrong
+   * for anything of higher rank — a vision model declaring
+   * `pixel_values: [1,3,224,224]` is rank 4 and rejects a rank-2 tensor with
+   * "Invalid rank for input". Pass `shapes` for such models.
    */
-  async predict(inputs: Record<string, Float32Array | Int32Array | BigInt64Array>): Promise<Record<string, Float32Array>> {
+  async predict(
+    inputs: Record<string, Float32Array | Int32Array | BigInt64Array>,
+    shapes?: Record<string, readonly number[]>
+  ): Promise<Record<string, Float32Array>> {
     const tensorInputs: Record<string, ort.Tensor> = {};
-    
+
     for (const [key, data] of Object.entries(inputs)) {
       let type: 'float32' | 'int32' | 'int64';
       if (data instanceof Float32Array) {
@@ -101,7 +115,8 @@ export class EdgeInfer {
       } else {
         type = 'int32';
       }
-      tensorInputs[key] = new ort.Tensor(type, data, [1, data.length]);
+      const shape = shapes?.[key] ?? [1, data.length];
+      tensorInputs[key] = new ort.Tensor(type, data, shape as number[]);
     }
 
     const results = await this.session.run(tensorInputs);
@@ -213,16 +228,20 @@ export class EdgeInfer {
    * Classify an image using a vision model.
    */
   async classifyImage(imageData: ImageData, layout?: 'NCHW' | 'NHWC'): Promise<ClassificationResult[]> {
-    const tensorData = ImageProcessor.imageDataToFloat32Array(imageData, { layout });
-    
+    const effectiveLayout = layout ?? 'NCHW';
+    const tensorData = ImageProcessor.imageDataToFloat32Array(imageData, { layout: effectiveLayout });
+
     // Find the image input name
-    const inputName = this._inputNames.find(n => 
+    const inputName = this._inputNames.find(n =>
       n === 'input' || n === 'pixel_values' || n === 'image'
     ) || this._inputNames[0];
 
-    const result = await this.predict({ [inputName]: tensorData });
+    const result = await this.predict(
+      { [inputName]: tensorData },
+      { [inputName]: EdgeInfer.imageShape(imageData, effectiveLayout) }
+    );
     const output = result[this._outputNames[0]];
-    
+
     if (!output) return [];
 
     const probs = this.softmax(output);
@@ -238,12 +257,15 @@ export class EdgeInfer {
    */
   async detectObjects(imageData: ImageData): Promise<Detection[]> {
     const tensorData = ImageProcessor.imageDataToFloat32Array(imageData);
-    
-    const inputName = this._inputNames.find(n => 
+
+    const inputName = this._inputNames.find(n =>
       n === 'input' || n === 'pixel_values' || n === 'image'
     ) || this._inputNames[0];
 
-    const result = await this.predict({ [inputName]: tensorData });
+    const result = await this.predict(
+      { [inputName]: tensorData },
+      { [inputName]: EdgeInfer.imageShape(imageData, 'NCHW') }
+    );
     const output = result[this._outputNames[0]];
     const detections: Detection[] = [];
     
@@ -295,6 +317,15 @@ export class EdgeInfer {
   }
 
   // --- Private Helpers ---
+
+  /** ONNX tensor shape for a 3-channel image tensor in the given layout. */
+  private static imageShape(
+    imageData: { width: number; height: number },
+    layout: 'NCHW' | 'NHWC'
+  ): number[] {
+    const { width, height } = imageData;
+    return layout === 'NCHW' ? [1, 3, height, width] : [1, height, width, 3];
+  }
 
   private requireTokenizer(): void {
     if (!this.tokenizer) {

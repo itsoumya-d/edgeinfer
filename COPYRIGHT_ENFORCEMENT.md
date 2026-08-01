@@ -20,7 +20,6 @@
 To use EDGEINFER in a commercial product, SaaS, or internal business tool:
 - **Licensor**: Soumya Debnath
 - **Email**: [soumyadebnath1661@gmail.com](mailto:soumyadebnath1661@gmail.com)
-- **Phone / WhatsApp**: [+91 7031648617](tel:+917031648617)
 - **License Terms & Pricing**: See `COMMERCIAL_LICENSE.md`
 
 © 2024-2026 Soumya Debnath. All Rights Reserved.

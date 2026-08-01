@@ -31,6 +31,14 @@ interface GPUCapabilities {
     provider: string;
     hasWebGPU: boolean;
     hasWebNN: boolean;
+    /**
+     * NOT an amount of video memory. This is the larger of the adapter's
+     * `maxBufferSize` and `maxStorageBufferBindingSize` limits, i.e. the largest
+     * single GPU buffer/binding WebGPU will allow. The WebGPU spec's guaranteed
+     * baseline values are 256 MiB and 128 MiB respectively, and browsers commonly
+     * report values close to the baseline regardless of how much VRAM the card
+     * physically has. Treat this as a maximum-tensor-size budget, not as VRAM.
+     */
     estimatedVRAM: number;
     recommendedQuantization: 'fp32' | 'fp16' | 'int8' | 'int4';
 }
@@ -52,9 +60,24 @@ declare class RuntimeManager {
     static getBestExecutionProvider(): Promise<string>;
     /**
      * Create an ONNX inference session with automatic provider selection.
-     * Falls back gracefully if preferred provider fails.
+     * Falls back gracefully if the preferred provider fails.
+     *
+     * Returns BOTH the session and the provider that actually served it. The
+     * detected capability (`detectCapabilities().provider`) is only a preference:
+     * a provider can be detected as available and still fail to create a session
+     * (for example onnxruntime-web only registers the WebGPU execution provider
+     * in some builds/versions). Callers must report the returned `provider`, not
+     * the detected one, or `EdgeInfer.executionProvider` will lie.
      */
-    static createSession(modelBuffer: ArrayBuffer, providers?: string[]): Promise<ort.InferenceSession>;
+    static createSession(modelBuffer: ArrayBuffer, providers?: string[]): Promise<{
+        session: ort.InferenceSession;
+        provider: string;
+    }>;
+    /**
+     * Resolve `promise`, or resolve to `null` if it has not settled within `ms`.
+     * Used to stop a hung GPU driver from blocking model loading forever.
+     */
+    private static withTimeout;
     /**
      * Estimate if a model of given size (bytes) can fit in available VRAM.
      */
@@ -67,7 +90,12 @@ declare class RuntimeManager {
 
 interface TokenizerConfig {
     vocab: Record<string, number>;
-    merges?: string[];
+    /**
+     * BPE merge rules, either `"a b"` (older HuggingFace tokenizer.json) or
+     * `["a", "b"]` (newer tokenizer.json). Accepted and normalised, but note
+     * that `encode()` currently implements WordPiece only — see `applyBPE`.
+     */
+    merges?: Array<string | [string, string]>;
     specialTokens?: Record<string, number>;
     maxLength?: number;
     padTokenId?: number;
@@ -176,8 +204,15 @@ declare class EdgeInfer {
     /**
      * Low-level tensor inference.
      * Pass raw tensor inputs and get raw tensor outputs.
+     *
+     * `shapes` optionally gives the ONNX tensor shape per input name. When an
+     * input has no explicit shape it defaults to `[1, data.length]`, which is
+     * correct for 2-D sequence inputs (`input_ids`, `attention_mask`) but wrong
+     * for anything of higher rank — a vision model declaring
+     * `pixel_values: [1,3,224,224]` is rank 4 and rejects a rank-2 tensor with
+     * "Invalid rank for input". Pass `shapes` for such models.
      */
-    predict(inputs: Record<string, Float32Array | Int32Array | BigInt64Array>): Promise<Record<string, Float32Array>>;
+    predict(inputs: Record<string, Float32Array | Int32Array | BigInt64Array>, shapes?: Record<string, readonly number[]>): Promise<Record<string, Float32Array>>;
     /**
      * Classify text using the loaded model.
      * Requires a tokenizer to be configured.
@@ -224,6 +259,8 @@ declare class EdgeInfer {
      * Release all resources (ONNX session, GPU memory).
      */
     dispose(): void;
+    /** ONNX tensor shape for a 3-channel image tensor in the given layout. */
+    private static imageShape;
     private requireTokenizer;
     private softmax;
     private meanPool;

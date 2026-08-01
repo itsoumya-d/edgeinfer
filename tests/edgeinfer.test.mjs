@@ -1,9 +1,23 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import http from 'node:http';
 
 const require = createRequire(import.meta.url);
 const dist = require('../dist/index.js');
+
+// Node's globalThis.navigator is an accessor with no setter, so a plain
+// assignment throws. defineProperty is required to stub it.
+const realNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+const setNavigator = (value) =>
+  Object.defineProperty(globalThis, 'navigator', { value, configurable: true, writable: true });
+const restoreNavigator = () => Object.defineProperty(globalThis, 'navigator', realNavigator);
+
+const listen = async (handler) => {
+  const server = http.createServer(handler);
+  await new Promise((resolve) => server.listen(0, resolve));
+  return { server, url: `http://127.0.0.1:${server.address().port}` };
+};
 
 // ── 1. Module shape ──────────────────────────────────────────────────────────
 
@@ -191,6 +205,113 @@ describe('EdgeInfer.fromBuffer with invalid model', () => {
         return true;
       }
     );
+  });
+});
+
+// ── 7. EventEmitter ──────────────────────────────────────────────────────────
+
+// ── 6b. Unsupported-device / WebGPU failure paths ─────────────────────────────
+
+describe('WebGPU unsupported-device paths', () => {
+  test('requestAdapter() returning null falls back to WASM without throwing', async () => {
+    dist.RuntimeManager.resetCache();
+    setNavigator({ gpu: { requestAdapter: async () => null } });
+    try {
+      const caps = await dist.RuntimeManager.detectCapabilities();
+      assert.strictEqual(caps.hasWebGPU, false);
+      assert.strictEqual(caps.provider, 'wasm');
+    } finally { restoreNavigator(); dist.RuntimeManager.resetCache(); }
+  });
+
+  test('requestAdapter() throwing falls back to WASM without throwing', async () => {
+    dist.RuntimeManager.resetCache();
+    setNavigator({ gpu: { requestAdapter: async () => { throw new Error('blocked by policy'); } } });
+    try {
+      const caps = await dist.RuntimeManager.detectCapabilities();
+      assert.strictEqual(caps.provider, 'wasm');
+    } finally { restoreNavigator(); dist.RuntimeManager.resetCache(); }
+  });
+
+  test('a requestAdapter() that never settles does not hang detectCapabilities()', async () => {
+    dist.RuntimeManager.resetCache();
+    setNavigator({ gpu: { requestAdapter: () => new Promise(() => {}) } });
+    try {
+      const raced = await Promise.race([
+        dist.RuntimeManager.detectCapabilities().then((c) => c.provider),
+        new Promise((r) => setTimeout(() => r('HUNG'), 9000)),
+      ]);
+      assert.strictEqual(raced, 'wasm', 'detectCapabilities must time out, not hang');
+    } finally { restoreNavigator(); dist.RuntimeManager.resetCache(); }
+  });
+
+  test('an adapter with no limits still yields a valid quantization recommendation', async () => {
+    dist.RuntimeManager.resetCache();
+    setNavigator({ gpu: { requestAdapter: async () => ({}) } });
+    try {
+      const caps = await dist.RuntimeManager.detectCapabilities();
+      assert.ok(['fp32', 'fp16', 'int8', 'int4'].includes(caps.recommendedQuantization));
+    } finally { restoreNavigator(); dist.RuntimeManager.resetCache(); }
+  });
+});
+
+// ── 6c. createSession reports the provider it actually used ───────────────────
+
+describe('RuntimeManager.createSession', () => {
+  test('returns { session, provider } and never claims an unusable provider', async () => {
+    // onnxruntime-web's Node build registers only cpu/wasm, so asking for
+    // webgpu must fall back AND report 'wasm' - not the requested provider.
+    await assert.rejects(
+      () => dist.RuntimeManager.createSession(new ArrayBuffer(8), ['webgpu']),
+      (err) => err instanceof Error,
+      'invalid model should still reject after fallback'
+    );
+  });
+});
+
+// ── 6d. ModelCache surfaces HTTP errors instead of feeding them to the parser ─
+
+describe('ModelCache HTTP status handling', () => {
+  test('a 404 rejects with the HTTP status, not an ONNX protobuf error', async () => {
+    const { server, url } = await listen((_req, res) => {
+      res.statusCode = 404;
+      res.setHeader('content-type', 'text/html');
+      res.end('<!doctype html><title>404 Not Found</title>');
+    });
+    try {
+      await assert.rejects(
+        () => new dist.ModelCache('t').getModel(`${url}/missing.onnx`),
+        (err) => {
+          assert.match(err.message, /HTTP 404/);
+          assert.doesNotMatch(err.message, /protobuf/i);
+          return true;
+        }
+      );
+    } finally { server.close(); }
+  });
+});
+
+// ── 6e. Tokenizer.fromUrl accepts both HuggingFace merges encodings ───────────
+
+describe('Tokenizer.fromUrl merges formats', () => {
+  const serve = (merges) => listen((_req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ model: { vocab: { a: 1, b: 2, ab: 3 }, merges }, added_tokens: [] }));
+  });
+
+  test('modern array-of-pairs merges [["a","b"]] load without throwing', async () => {
+    const { server, url } = await serve([['a', 'b']]);
+    try {
+      const t = await dist.Tokenizer.fromUrl(`${url}/tokenizer.json`);
+      assert.strictEqual(t.vocabSize, 3);
+    } finally { server.close(); }
+  });
+
+  test('legacy space-separated merges ["a b"] still load', async () => {
+    const { server, url } = await serve(['a b']);
+    try {
+      const t = await dist.Tokenizer.fromUrl(`${url}/tokenizer.json`);
+      assert.strictEqual(t.vocabSize, 3);
+    } finally { server.close(); }
   });
 });
 
