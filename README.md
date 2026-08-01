@@ -5,410 +5,181 @@
 // Contact: soumyadebnath1661@gmail.com | +91 7031648617
 -->
 
-<div align="center">
-  <h1>EdgeInfer 🚀</h1>
-  <p><strong>Zero-Cost, Privacy-First On-Device AI Inference</strong></p>
-  
-  [![License: AGPL-3.0](https://img.shields.io/badge/License-BSL_1.1-red.svg)](https://mariadb.com/bsl11/)](https://www.gnu.org/licenses/agpl-3.0)
-  [![NPM Version](https://img.shields.io/npm/v/edgeinfer.svg)](https://npmjs.com/package/edgeinfer)
-  [![Build Status](https://img.shields.io/github/actions/workflow/status/soumyadebnath16/edgeinfer/ci.yml?branch=main)](https://github.com/soumyadebnath16/edgeinfer/actions)
-  [![Coverage](https://img.shields.io/codecov/c/github/soumyadebnath16/edgeinfer)](https://codecov.io/gh/soumyadebnath16/edgeinfer)
-  [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
+# EdgeInfer
 
-  *Replace your costly OpenAI API calls with secure, lightning-fast on-device AI.*
+<div align="center">
+  <p><strong>On-Device AI Inference via ONNX Runtime WebAssembly and WebGPU</strong></p>
+
+  [![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-red.svg)](https://mariadb.com/bsl11/)
+  [![Status](https://img.shields.io/badge/status-pre--release-orange.svg)]()
 </div>
 
 ---
 
-## 📖 Table of Contents
-
-- [What is EdgeInfer?](#-what-is-edgeinfer)
-- [Why Choose EdgeInfer?](#-why-choose-edgeinfer)
-  - [Cost Comparison](#cost-comparison)
-  - [Privacy Benefits](#privacy-benefits)
-- [Architecture](#-architecture)
-- [Installation](#-installation)
-- [Quick Start](#-quick-start)
-- [API Reference](#-api-reference)
-  - [Core Methods](#core-methods)
-  - [Text Operations](#text-operations)
-  - [Vision Operations](#vision-operations)
-- [Supported Models & Formats](#-supported-models--formats)
-  - [Recommended Models](#recommended-models)
-- [How It Works (Under the Hood)](#-how-it-works-under-the-hood)
-  - [Backend Auto-Detection](#backend-auto-detection)
-  - [Smart Caching](#smart-caching)
-- [Performance Benchmarks](#-performance-benchmarks)
-- [Competitor Comparison](#-competitor-comparison)
-- [Deployment Guide](#-deployment-guide)
-- [Configuration Options](#-configuration-options)
-- [Security Model](#-security-model)
-- [FAQ](#-faq)
-- [Contributing](#-contributing)
-- [Author & License](#-author--license)
+> **Pre-release software. Not published to npm. No production adopters yet. See [Known Limitations](#known-limitations).**
 
 ---
 
-## 🤖 What is EdgeInfer?
+## What is EdgeInfer?
 
-**EdgeInfer** is an ultra-lightweight, high-performance TypeScript library that allows you to run Large Language Models (LLMs) and advanced Computer Vision models **directly in the user's browser or Node.js environment**. 
+EdgeInfer is a TypeScript library that runs ONNX models in the browser using ONNX Runtime Web, with automatic fallback from WebGPU to WebAssembly SIMD to plain WASM. It includes a Tokenizer, ImageProcessor, and ModelCache for common ML preprocessing tasks.
 
-By leveraging WebAssembly (WASM), WASM SIMD, and cutting-edge **WebGPU** acceleration via ONNX Runtime Web, EdgeInfer delivers cloud-like performance without the cloud.
-
-The ultimate goal? **To replace expensive, privacy-invasive API calls (like OpenAI, AWS SageMaker, Google Vertex AI) with a $0 cost, zero-latency on-device alternative.**
+Real exported symbols: `EdgeInfer`, `EventEmitter`, `ImageProcessor`, `ModelCache`, `RuntimeManager`, `Tokenizer`. Nothing is published under a separate npm package.
 
 ---
 
-## 💡 Why Choose EdgeInfer?
+## Installation
 
-### Cost Comparison
+EdgeInfer is **not published on npm**. `npm install edgeinfer` will fail. Install from source:
 
-Every time your app calls a cloud AI provider, it eats into your margins. With EdgeInfer, you shift the compute to the client.
-
-| Provider | Cost per 1M Tokens / Inferences | Data Privacy | Latency | Dependency |
-|---|---|---|---|---|
-| **EdgeInfer** | **$0.00 (Free)** | **100% Secure (Local)** | **<10ms (No network)** | **None** |
-| OpenAI (GPT-4o) | ~$5.00 - $15.00 | Data sent to cloud | 500ms - 2s | High |
-| AWS SageMaker | Hourly instance costs | Requires VPC setup | 100ms - 500ms | High |
-| Google Vertex | ~$0.0005 per request | Data sent to cloud | 150ms - 800ms | High |
-
-### Privacy Benefits
-
-In industries like healthcare, finance, or legal, sending user data to a third-party server is a massive compliance risk (HIPAA, GDPR, SOC2). EdgeInfer guarantees that **data never leaves the device**. Models are downloaded to the client's cache, and all inference happens locally.
-
----
-
-## 🏗 Architecture
-
-EdgeInfer is built on a modern, modular architecture designed for the edge:
-
-```mermaid
-graph TD
-    Client[Client Application] --> EdgeInferAPI[EdgeInfer API]
-    EdgeInferAPI --> ModelCache[Cache API / IndexedDB]
-    EdgeInferAPI --> Tokenizer[Universal Tokenizer]
-    EdgeInferAPI --> ImageProc[Image Processor]
-    EdgeInferAPI --> RuntimeMgr[Runtime Manager]
-    RuntimeMgr --> ORT[ONNX Runtime Web]
-    ORT --> WebGPU[WebGPU Backend]
-    ORT --> WASM_SIMD[WASM SIMD Backend]
-    ORT --> WASM[WASM CPU Backend]
+**Option 1 — jsDelivr CDN (no build step):**
+```html
+<script type="module">
+  import { EdgeInfer } from 'https://cdn.jsdelivr.net/gh/itsoumya-d/edgeinfer@main/dist/index.mjs';
+</script>
 ```
 
-1. **Runtime Manager**: Automatically detects the best hardware backend (WebGPU > WASM SIMD > WASM).
-2. **Model Cache**: Uses the Browser Cache API to download the model once and load it instantly from disk on subsequent visits.
-3. **Data Processors**: Includes built-in utilities like Tokenizers for LLMs and ImageProcessors for Vision models, standardizing inputs to ONNX tensors.
-
----
-
-## 🚀 Installation
-
-Install EdgeInfer via your favorite package manager:
-
+**Option 2 — Clone and build:**
 ```bash
-npm install edgeinfer
-# or
-yarn add edgeinfer
-# or
-pnpm add edgeinfer
+git clone https://github.com/itsoumya-d/edgeinfer.git
+cd edgeinfer
+npm install
+npm run build
 ```
-
-You will also need to install the peer dependency `onnxruntime-web`:
-
-```bash
-npm install onnxruntime-web
-```
+Then import from `./dist/index.mjs` or `./dist/index.js`.
 
 ---
 
-## ⚡ Quick Start
-
-Here is a 30-second example of loading a model and running a prediction:
+## Quick Start
 
 ```typescript
-import { EdgeInfer } from 'edgeinfer';
+import { EdgeInfer } from './dist/index.mjs';
 
-async function run() {
-  // 1. Load the model (automatically cached on device)
-  const model = await EdgeInfer.load('https://example.com/models/sentiment-analysis.onnx');
+// 1. Check WebGPU availability (optional — loads fall back to WASM automatically)
+const caps = await EdgeInfer.getCapabilities();
+console.log(`Running on: ${caps.provider}`); // 'webgpu' | 'wasm'
 
-  // 2. Run high-level sentiment analysis
-  const result = await model.sentiment("I absolutely love running AI on the edge!");
-  
-  console.log(result); // { label: 'positive', score: 0.998 }
-}
-
-run();
-```
-
----
-
-## 📚 API Reference
-
-### Core Methods
-
-#### `EdgeInfer.load(modelUrl: string, options?: ModelOptions): Promise<EdgeInfer>`
-Downloads, caches, and loads an ONNX model into memory.
-- `modelUrl`: The URL to the `.onnx` model file.
-- `options`: 
-  - `executionProviders`: Array of providers (e.g. `['webgpu', 'wasm']`).
-  - `cacheName`: Name of the Cache storage (default: `edgeinfer-models`).
-  - `forceDownload`: Bypass cache and redownload (default: `false`).
-
-#### `EdgeInfer.fromBuffer(buffer: ArrayBuffer, options?: ModelOptions): Promise<EdgeInfer>`
-Loads a model directly from a binary buffer.
-
-#### `model.predict(inputs: Record<string, Float32Array | Int32Array>): Promise<Record<string, Float32Array>>`
-The low-level execution method. Takes raw tensors and returns raw tensor outputs.
-
-#### `model.dispose(): void`
-Frees up memory and WebGPU/WASM resources associated with the session.
-
----
-
-### Text Operations
-
-#### `model.classify(text: string): Promise<ClassificationResult[]>`
-Classifies a given text string. Returns an array of labels and confidence scores.
-
-```typescript
-const categories = await model.classify("How do I reset my password?");
-// [{ label: 'support_query', score: 0.95 }, ...]
-```
-
-#### `model.sentiment(text: string): Promise<{ label: string, score: number }>`
-Analyzes the sentiment of the provided text. Returns either `positive` or `negative`.
-
-#### `model.embed(text: string): Promise<Float32Array>`
-Generates vector embeddings for text, ideal for Retrieval-Augmented Generation (RAG) applications entirely in the browser.
-
-```typescript
-const vector = await model.embed("Artificial Intelligence");
-// Float32Array(384) [0.12, -0.45, ...]
-```
-
----
-
-### Vision Operations
-
-#### `model.classifyImage(imageData: ImageData): Promise<ClassificationResult[]>`
-Takes a native browser `ImageData` object and classifies the image.
-
-```typescript
-const canvas = document.createElement('canvas');
-const ctx = canvas.getContext('2d');
-// ... draw image to canvas ...
-const imageData = ctx.getImageData(0, 0, 224, 224);
-
-const results = await model.classifyImage(imageData);
-// [{ label: 'Golden Retriever', score: 0.89 }, ...]
-```
-
-#### `model.detectObjects(imageData: ImageData): Promise<Detection[]>`
-Performs object detection, returning bounding boxes, labels, and confidence scores.
-
-```typescript
-const detections = await model.detectObjects(imageData);
-/* [
-  { bbox: [10, 20, 150, 200], label: 'Person', score: 0.92 },
-  { bbox: [300, 50, 100, 80], label: 'Car', score: 0.88 }
-] */
-```
-
----
-
-## 🧠 Supported Models & Formats
-
-EdgeInfer is designed exclusively around the **ONNX (Open Neural Network Exchange)** format. This ensures maximum compatibility across training frameworks (PyTorch, TensorFlow, JAX) and highly optimized execution on the web.
-
-### Recommended Models
-
-We recommend compiling/quantizing these models to INT8 ONNX format for the best web experience:
-
-- **LLMs / Text Generation**: Microsoft Phi-3-mini (ONNX), Google Gemma 2B.
-- **Text Classification / Sentiment**: DistilBERT, MobileBERT.
-- **Embeddings**: BAAI bge-small-en, all-MiniLM-L6-v2.
-- **Vision Classification**: MobileNetV3, EfficientNet-Lite.
-- **Object Detection**: YOLOv8 Nano, SSD MobileNet.
-
-*Tip: Use tools like Optimum (Hugging Face) to easily export PyTorch models to ONNX.*
-
----
-
-## 🔬 Cutting-Edge Tokenization, WebGPU Hardware & Research Features
-
-EdgeInfer incorporates cutting-edge ML research and production-grade execution primitives designed specifically for browser runtime environments.
-
-### 🔤 Real BPE & WordPiece Tokenizer
-- **Native Vocabulary Loading**: High-speed parsing of `vocab.json` / `tokenizer.json` files for Byte-Pair Encoding (BPE) and WordPiece tokenization models without external dependencies.
-- **Special Token Handling & Attention Masks**: Full support for special tokens (`[CLS]`, `[SEP]`, `<s>`, `</s>`, `<pad>`, `<unk>`) and automatic generation of 1D/2D `attention_mask` and `position_ids` tensors for LLM and Transformer inference.
-
-### ⚡ WebGPU Hardware Auto-Detection & VRAM Profiling
-- **Hardware Probing**: Real-time inspection of WebGPU adapter limits (`navigator.gpu.requestAdapter()`) to query compute shader capabilities, max buffer bindings, and memory limits.
-- **VRAM Estimation & Quantization Recommendation**: Automatically estimates device VRAM and recommends optimal quantization formats (e.g. 1.58-bit BitNet, 4-bit AWQ, or 8-bit INT8) to prevent out-of-memory browser crashes.
-
-### 📐 Matryoshka Vector Embeddings (MRL)
-- **Variable-Dimension Truncation**: Supports Matryoshka Representation Learning (MRL), allowing high-dimensional model outputs (e.g., 768d) to be dynamically sliced down to 384d, 128d, or 64d with minimal retrieval accuracy loss—reducing browser memory and vector search latency.
-
-### 🔬 Research Foundations
-> **Research Papers:**  
-> - Ma, S., Wang, H., Ma, L., et al. (2024). *The Era of 1-bit LLMs: All Large Language Models are in 1.58 Bits (BitNet b1.58)*. [arXiv:2402.17764](https://arxiv.org/abs/2402.17764)
-> - Dao, T., Gu, A. (2024). *Transformers are SSMs: Generalized Models and Efficient Algorithms Through Structured State Spaces (Mamba-2)*. [arXiv:2405.21060](https://arxiv.org/abs/2405.21060)
-
-### 💻 Usage Example: Tokenizer, Hardware Profiling & Matryoshka Embeddings
-
-```typescript
-import { EdgeInfer, BPETokenizer } from 'edgeinfer';
-
-// 1. WebGPU VRAM & Hardware Auto-Detection
-const hw = await EdgeInfer.detectHardware();
-console.log(`Available VRAM: ${hw.vramMB}MB. Recommended Quantization: ${hw.recommendedQuant}`);
-
-// 2. Real BPE Tokenizer with Attention Masks
-const tokenizer = await BPETokenizer.fromUrl('/models/vocab.json', '/models/merges.txt');
-const { inputIds, attentionMask } = tokenizer.encode("EdgeInfer brings BitNet & Mamba-2 on-device", {
-  addSpecialTokens: true,
-  maxLen: 128
+// 2. Load a model (URL must return an ONNX binary)
+const model = await EdgeInfer.load('https://example.com/models/sentiment.onnx', {
+  tokenizerUrl: 'https://example.com/models/tokenizer.json',
 });
 
-// 3. Matryoshka Embedding Truncation
-const model = await EdgeInfer.load('/models/bge-small-mrl.onnx');
-const fullEmbedding = await model.embed("Query text");
-const truncated64d = EdgeInfer.truncateMatryoshka(fullEmbedding, 64);
+// 3. Run inference
+const result = await model.sentiment('This is great!');
+console.log(result); // { label: 'positive', score: 0.98 }
+
+// 4. Release resources
+model.dispose();
 ```
 
 ---
 
-## ⚙️ How It Works (Under the Hood)
+## API Reference
 
-### Backend Auto-Detection
+### `EdgeInfer` Class
 
-When `EdgeInfer.load()` is called, the `RuntimeManager` probes the host environment to determine the most performant execution provider:
+#### `static async load(modelUrl: string, options?: EdgeInferOptions): Promise<EdgeInfer>`
+Downloads (and caches via Cache API), then creates an inference session. `options.executionProviders` overrides auto-detection.
 
-1. **WebGPU (Tier 1)**: If `navigator.gpu` is available, EdgeInfer uses it. WebGPU provides near-native GPU parallelization, allowing LLMs to stream at 20-40 tokens per second in-browser.
-2. **WASM SIMD (Tier 2)**: For older browsers or devices without WebGPU, it falls back to WebAssembly Single Instruction Multiple Data (SIMD), utilizing CPU vector instructions.
-3. **WASM (Tier 3)**: Fallback standard WebAssembly for legacy support.
+#### `static async fromBuffer(buffer: ArrayBuffer, options?: EdgeInferOptions): Promise<EdgeInfer>`
+Creates a session from a pre-loaded model buffer. Rejects with `Error` if the buffer is not a valid ONNX model.
 
-### Smart Caching
+#### `static async isWebGPUAvailable(): Promise<boolean>`
+Returns `true` if `navigator.gpu` is present and the adapter request succeeds.
 
-Models can be large (10MB to 2GB). EdgeInfer uses the modern `Cache API` (`model-cache.ts`). 
-1. The model URL is intercepted.
-2. If it exists in the browser's Cache Storage, it is loaded instantly (0 network requests).
-3. If not, it streams the download, emitting `downloadStart` and `downloadComplete` events, and saves a clone to the cache.
+#### `static async getCapabilities(): Promise<GPUCapabilities>`
+Returns `{ provider, hasWebGPU, hasWebNN, estimatedVRAM, recommendedQuantization }`.
+
+#### `async predict(inputs): Promise<Record<string, Float32Array>>`
+Low-level: pass raw typed arrays keyed by ONNX input name, receive raw output tensors.
+
+#### `async classify(text: string): Promise<ClassificationResult[]>`
+Requires a tokenizer (pass `tokenizerUrl` or `tokenizerConfig` in options, or call `setTokenizer()`). Throws `Error` with a clear message if no tokenizer is configured.
+
+#### `async embed(text: string): Promise<Float32Array>`
+Returns mean-pooled, L2-normalized embedding vector. Requires tokenizer.
+
+#### `async embedMatryoshka(text: string, dimension: number): Promise<Float32Array>`
+Truncates the embedding to `dimension` and re-normalizes (Matryoshka MRL).
+
+#### `async sentiment(text: string): Promise<{ label: string; score: number }>`
+Returns `{ label: 'positive'|'negative'|'neutral', score }`. Requires tokenizer.
+
+#### `async classifyImage(imageData: ImageData): Promise<ClassificationResult[]>`
+Expects browser `ImageData`. Converts to `Float32Array` via `ImageProcessor`.
+
+#### `async detectObjects(imageData: ImageData): Promise<Detection[]>`
+Returns `{ bbox, label, score }[]` for detections above 0.5 confidence.
+
+#### `dispose(): void`
+Releases the ONNX session and resets the provider cache.
+
+### `RuntimeManager`
+
+#### `static async detectCapabilities(): Promise<GPUCapabilities>`
+In Node.js (no `navigator.gpu`): returns `{ provider: 'wasm', hasWebGPU: false, ... }` without throwing.
+
+#### `static resetCache(): void`
+Clears the cached capabilities so the next call re-probes the environment.
+
+### `Tokenizer`
+
+Constructor takes `{ vocab, merges?, specialTokens?, maxLength?, padTokenId?, unkTokenId?, clsTokenId?, sepTokenId? }`. Note: `vocab` is the key — not `vocabulary`.
+
+`encode(text, { addSpecialTokens, maxLength, padding })` returns `{ inputIds: Int32Array, attentionMask: Int32Array }`. Empty string returns a single pad token rather than an empty array (which would crash the ONNX session).
+
+### `ImageProcessor`
+
+`static imageDataToFloat32Array(imageData, options?)` converts an RGBA `ImageData`-like object to a CHW `Float32Array` in `[0,1]` range. Works in Node with a mock `ImageData` struct `{ data: Uint8ClampedArray, width, height }`.
 
 ---
 
-## 📊 Performance Benchmarks
+## Performance
 
-*Tested on M2 MacBook Air (2022) using Chrome v120.*
+**Claimed benchmark (from original README): M2 MacBook Air, Chrome 120, WebGPU**
+- MobileBERT: ~4ms | MiniLM: ~8ms | MobileNetV3: ~6ms | YOLOv8 Nano: ~15ms | Phi-3-mini: ~25 tok/s
 
-| Model | Task | Backend | Latency / Throughput |
-|---|---|---|---|
-| MobileBERT (INT8) | Text Classification | WebGPU | ~4ms |
-| all-MiniLM-L6-v2 | Text Embedding | WebGPU | ~8ms |
-| MobileNetV3 (INT8)| Image Classification| WebGPU | ~6ms |
-| YOLOv8 Nano | Object Detection | WebGPU | ~15ms |
-| Phi-3-mini (4-bit)| Text Generation | WebGPU | ~25 tokens/sec |
-| Phi-3-mini (4-bit)| Text Generation | WASM | ~4 tokens/sec |
+**These numbers cannot be reproduced in this environment.** WebGPU is not available in Node.js. A meaningful benchmark requires a real browser with WebGPU support and a loaded ONNX model. The claims above are removed from the main README to avoid misleading users. If you have browser benchmark results to contribute, open a PR with your hardware spec, browser version, and methodology.
 
 ---
 
-## 🆚 Competitor Comparison
+## Known Limitations
+
+- **Pre-release, no npm package.** Use jsDelivr or clone from source.
+- **WebGPU requires a real browser.** `RuntimeManager.detectCapabilities()` returns `{ provider: 'wasm', hasWebGPU: false }` in Node.js — not an error, just WASM fallback.
+- **No WebGPU = WASM execution.** On browsers without WebGPU (Firefox without flag, older Chromium), all inference runs on WASM. This is slower but still functional.
+- **Model loading requires fetch.** `EdgeInfer.load()` calls `fetch()`. In Node.js, you need Node 18+ (native fetch) or a polyfill. WASM file loading may also require the `wasm-unsafe-eval` Content-Security-Policy directive in the browser.
+- **No text methods without a tokenizer.** `classify()`, `embed()`, `sentiment()` throw a clear `Error` if no tokenizer is configured: `EdgeInfer: No tokenizer configured. Either pass tokenizerUrl/tokenizerConfig...`. This is not a silent hang.
+- **Performance claims deleted.** The original README listed latency numbers (`~4ms`, `~25 tokens/sec`) measured on an M2 MacBook with Chrome WebGPU. These cannot be verified in a CI environment with no GPU. The table has been removed.
+- **Bundle size claim "< 5KB" is incorrect.** `dist/index.mjs` is ~20KB before gzip. The `onnxruntime-web` peer dependency adds ~1.5MB.
+- **No production adopters yet.** APIs may change without notice.
+
+---
+
+## Competitor Comparison
 
 | Feature | EdgeInfer | TensorFlow.js | Transformers.js |
 |---|---|---|---|
-| **Core Engine** | ONNX Runtime | Custom / WebGL | ONNX Runtime |
-| **WebGPU Support**| First-class | Experimental | First-class |
-| **Bundle Size** | **<5KB** (Zero bloat) | >1MB | ~500KB |
-| **API Abstraction**| Very High (Developer friendly)| Low (Tensor math) | Medium |
-| **Focus** | Multi-modal Edge AI | Broad ML ecosystem | NLP primary |
-
-EdgeInfer acts as a super-thin, highly-optimized wrapper specifically meant to make ONNX models frictionless for everyday application developers.
+| Core Engine | ONNX Runtime Web | Custom / WebGL | ONNX Runtime Web |
+| WebGPU Support | First-class | Experimental | First-class |
+| npm availability | Not published | Published | Published |
+| Production-ready | Pre-release | Yes | Yes |
 
 ---
 
-## 🚢 Deployment Guide
+## License — Business Source License 1.1
 
-1. **Model Hosting**: Host your `.onnx` files on a CDN (like Cloudflare, AWS CloudFront, or Vercel Edge Network). Ensure CORS is configured properly to allow your web app to fetch the models.
-2. **Web Server Config**: If serving your own ONNX files, ensure you serve them with the correct headers:
-   ```http
-   Content-Type: application/octet-stream
-   Cache-Control: public, max-age=31536000, immutable
-   ```
-3. **Bundler (Webpack/Vite)**: ONNX Runtime Web loads `.wasm` files dynamically. Ensure your bundler is configured to serve the `ort-wasm.wasm` and `ort-wasm-simd.wasm` files from your `public` directory.
-
----
-
-## 🛠 Configuration Options
-
-When initializing, you can pass options:
-
-```typescript
-const options: ModelOptions = {
-  executionProviders: ['wasm'], // Force WASM, ignore WebGPU
-  cacheName: 'my-custom-model-cache', // Isolate your cache
-  forceDownload: true // Ignore cache, useful for model updates
-};
-
-const model = await EdgeInfer.load('model.onnx', options);
-```
-
----
-
-## 🔒 Security Model
-
-- **No Data Collection**: EdgeInfer contains zero telemetry.
-- **Local Execution**: Data processed by `classify`, `embed`, etc., exists only in the browser's JS engine memory and WebGPU buffers. It is cleared upon garbage collection.
-- **Supply Chain**: Built with minimal dependencies to reduce the surface area for supply chain attacks.
-
----
-
-## ❓ FAQ
-
-**Q: Can I run Llama 3 or GPT-4?**
-A: GPT-4 is proprietary and cloud-only. You can run smaller open-source models like Llama 3 (8B) if they are quantized and converted to ONNX, but they require significant RAM (4-8GB) which may crash mobile browsers. Stick to <3B parameter models for web.
-
-**Q: Does this work in React Native or Node.js?**
-A: Yes! For Node.js, you will need to use `onnxruntime-node` instead of `-web`. For React Native, use `onnxruntime-react-native`. The EdgeInfer core logic remains the same.
-
-**Q: Why do I get a CORS error when loading a model?**
-A: The server hosting your `.onnx` file must return the `Access-Control-Allow-Origin: *` header.
-
-**Q: How do I convert my PyTorch model for EdgeInfer?**
-A: Use Python:
-```python
-import torch
-torch.onnx.export(model, dummy_input, "model.onnx")
-```
-
----
-
-## 🤝 Contributing
-
-We welcome community contributions! Please read our [Contributing Guidelines](CONTRIBUTING.md) before submitting a PR.
-1. Fork the repo.
-2. Create a feature branch (`git checkout -b feature/amazing-feature`).
-3. Commit your changes (`git commit -m 'feat: Add amazing feature'`).
-4. Push to the branch (`git push origin feature/amazing-feature`).
-5. Open a Pull Request.
-
----
-
-## ⚖️ License — Business Source License 1.1
-
-> **Source-available, NOT open-source. All production use requires a paid license.**
-> Replaces: OpenAI API, SageMaker
+> **Source-available, NOT open-source. Production use requires a paid license.**
 
 | Tier | Price | For |
-|:-----|:------|:----|
-| **Indie** | $499/year | Solo developer, <$100K revenue |
-| **Startup** | $3,999/year | Up to 10-25 devs, <$5M revenue |
-| **Enterprise** | $19,999/year | Unlimited seats, unlimited revenue |
-| **OEM / White-Label** | $39,999/year | Embed in your product |
-| **Full IP Buyout** | $3,000,000 | Complete ownership transfer |
+|---|---|---|
+| Indie | $499/year | Solo developer, <$100K revenue |
+| Startup | $3,999/year | Up to 10-25 devs, <$5M revenue |
+| Enterprise | $19,999/year | Unlimited seats, unlimited revenue |
+| OEM / White-Label | $39,999/year | Embed in your product |
 
-**Free use limited to:** Personal evaluation, academic research, contributing via PRs.
+**Free use:** Personal evaluation, academic research, open-source contribution.
 
-📧 [soumyadebnath1661@gmail.com](mailto:soumyadebnath1661@gmail.com) · 📞 [+91 7031648617](tel:+917031648617) · 🐙 [github.com/itsoumya-d](https://github.com/itsoumya-d)
+Contact: soumyadebnath1661@gmail.com | +91 7031648617 | github.com/itsoumya-d
 
 © 2024-2026 Soumya Debnath. All Rights Reserved.
