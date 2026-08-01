@@ -648,7 +648,7 @@
                 <a href="#features">Features</a>
                 <a href="#pricing">Pricing</a>
                 <a href="blog/index.html">Blog</a>
-                <a href="https://github.com/edgeinfer" target="_blank">GitHub</a>
+                <a href="https://github.com/itsoumya-d/edgeinfer" target="_blank" rel="noopener noreferrer">GitHub</a>
             </div>
         </div>
     </nav>
@@ -661,19 +661,21 @@
             
             <div class="hero-cost-provocative gsap-hero" style="margin: 24px auto; z-index: 1;">
                 <p style="font-size: 18px; font-weight: 500; color: var(--text-heading); margin-bottom: 8px;">OpenAI charges $20/million tokens. Your GPU does it for free.</p>
-                <p style="font-size: 24px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--primary);">Tokens generated on YOUR device: <span id="hero-token-counter">0</span></p>
+                <p style="font-size: 24px; font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--primary);">Illustrative counter: <span id="hero-token-counter">0</span></p>
+                <p style="font-size:12px;color:#94a3b8;margin-top:6px;">Animated placeholder value, not a measurement.</p>
             </div>
 
             <p class="gsap-hero" style="margin-top: 0;">EdgeInfer is the premier on-device inference engine. Deploy massive models directly to your users' devices with WebGPU and WASM SIMD.</p>
             
             <div class="hero-ctas gsap-hero">
-                <a href="#docs" class="btn btn-primary">Get Started</a>
-                <a href="#demo" class="btn btn-secondary">View Benchmarks</a>
+                <a href="https://github.com/itsoumya-d/edgeinfer#quick-start" class="btn btn-primary" rel="noopener noreferrer">Get Started</a>
+                <a href="https://github.com/itsoumya-d/edgeinfer#performance" class="btn btn-secondary" rel="noopener noreferrer">Performance &amp; Limitations</a>
             </div>
 
-            <div class="chat-playground gsap-hero" style="position: relative; z-index: 1; max-width: 600px; margin: 0 auto 48px; background: rgba(255,255,255,0.02); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(236,72,153,0.3); border-radius: 16px; padding: 24px; text-align: left; box-shadow: 0 0 20px rgba(236,72,153,0.1);">
+            <div class="chat-playground gsap-hero" data-illustrative="true" style="position: relative; z-index: 1; max-width: 600px; margin: 0 auto 48px; background: rgba(255,255,255,0.02); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(236,72,153,0.3); border-radius: 16px; padding: 24px; text-align: left; box-shadow: 0 0 20px rgba(236,72,153,0.1);">
                 <div class="chat-message user-message" style="margin-bottom: 16px; background: rgba(255,255,255,0.05); padding: 12px 16px; border-radius: 12px; border-bottom-right-radius: 4px; width: fit-content; margin-left: auto;">
                     <span style="font-weight: 500; color: var(--text-heading); font-size: 14px;">User: Explain quantum computing in simple terms</span>
+                    <div style="margin-top:10px;font-size:12px;color:#94a3b8;font-weight:400;">Illustrative mock-up. This text is hard-coded in the page; EdgeInfer has no text-generation API.</div>
                 </div>
                 <div class="chat-message ai-message" style="margin-bottom: 16px; background: rgba(139,92,246,0.1); padding: 12px 16px; border-radius: 12px; border-bottom-left-radius: 4px; width: fit-content;">
                     <span style="font-weight: 500; color: var(--secondary); font-size: 14px; margin-bottom: 4px; display: block;">EdgeInfer AI:</span>
@@ -797,16 +799,12 @@
 
         <section class="container gsap-section">
             <h2>Universal <span class="text-gradient-secondary">Model Support</span></h2>
-            <p style="margin-top:24px;">Native support for ONNX runtime and quantized GGUF formats.</p>
+            <p style="margin-top:24px;">Runs ONNX models via ONNX Runtime Web. GGUF is <strong>not</strong> supported. Classification, embedding and vision models only &mdash; EdgeInfer has no text-generation or audio pipeline, so generative LLMs and speech models will not run.</p>
             <div class="model-grid">
-                <div class="model-tag">BERT Base</div>
+                <div class="model-tag">BERT / MiniLM (classify, embed)</div>
                 <div class="model-tag">MobileNet V3</div>
-                <div class="model-tag">Phi-3 Mini</div>
-                <div class="model-tag">Gemma 2B</div>
-                <div class="model-tag">Whisper Tiny</div>
-                <div class="model-tag">YOLOv8</div>
                 <div class="model-tag">ResNet50</div>
-                <div class="model-tag">StableLM</div>
+                <div class="model-tag">Any ONNX classifier</div>
             </div>
         </section>
 
@@ -823,18 +821,23 @@
                     <div class="code-tab">infer.js</div>
                 </div>
                 <div class="code-content">
-<pre><code><span class="syntax-keyword">import</span> { Pipeline } <span class="syntax-keyword">from</span> <span class="syntax-string">'@edgeinfer/core'</span>;
+<pre><code><span class="syntax-comment">// Browsers cannot resolve the bare "onnxruntime-web" specifier,</span>
+<span class="syntax-comment">// so an import map is required for the CDN path.</span>
+<span class="syntax-comment">// &lt;script type="importmap"&gt;{"imports":{"onnxruntime-web":</span>
+<span class="syntax-comment">//   "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort.bundle.min.mjs"}}&lt;/script&gt;</span>
+<span class="syntax-keyword">import</span> { EdgeInfer } <span class="syntax-keyword">from</span> <span class="syntax-string">'https://cdn.jsdelivr.net/gh/itsoumya-d/edgeinfer@main/dist/index.mjs'</span>;
 
-<span class="syntax-comment">// 1. Initialize the pipeline (Auto-detects WebGPU)</span>
-<span class="syntax-keyword">const</span> classifier = <span class="syntax-keyword">await</span> Pipeline.<span class="syntax-function">load</span>(<span class="syntax-string">'sentiment-analysis'</span>, {
-    model: <span class="syntax-string">'Xenova/distilbert-base-uncased-finetuned-sst-2-english'</span>,
-    quantized: <span class="syntax-keyword">true</span>,
-    cache: <span class="syntax-keyword">true</span>
+<span class="syntax-comment">// 1. Load an ONNX classifier plus its tokenizer</span>
+<span class="syntax-keyword">const</span> model = <span class="syntax-keyword">await</span> EdgeInfer.<span class="syntax-function">load</span>(<span class="syntax-string">'/models/sentiment.onnx'</span>, {
+    tokenizerUrl: <span class="syntax-string">'/models/tokenizer.json'</span>
 });
 
-<span class="syntax-comment">// 2. Run zero-cost inference</span>
-<span class="syntax-keyword">const</span> result = <span class="syntax-keyword">await</span> classifier(<span class="syntax-string">"EdgeInfer is absolutely incredible!"</span>);
-console.<span class="syntax-function">log</span>(result); <span class="syntax-comment">// { label: 'POSITIVE', score: 0.9998 }</span></code></pre>
+<span class="syntax-comment">// 2. Run inference on-device</span>
+<span class="syntax-keyword">const</span> result = <span class="syntax-keyword">await</span> model.<span class="syntax-function">sentiment</span>(<span class="syntax-string">"EdgeInfer runs this locally."</span>);
+console.<span class="syntax-function">log</span>(result); <span class="syntax-comment">// { label: 'positive', score: 0.98 }</span>
+console.<span class="syntax-function">log</span>(model.executionProvider); <span class="syntax-comment">// 'webgpu' | 'webnn' | 'wasm'</span>
+
+model.<span class="syntax-function">dispose</span>();</code></pre>
                 </div>
             </div>
         </section>
@@ -853,7 +856,7 @@ console.<span class="syntax-function">log</span>(result); <span class="syntax-co
                 </div>
                 <div class="faq-item">
                     <div class="faq-q" onclick="toggleFaq(this)">How large are the model downloads? <span>+</span></div>
-                    <div class="faq-a">We utilize highly quantized 4-bit and 8-bit ONNX models. Many vision and text models are under 25MB, and they are heavily cached in the browser's IndexedDB after the first load.</div>
+                    <div class="faq-a">We utilize highly quantized 4-bit and 8-bit ONNX models. Many vision and text models are under 25MB, and they are cached with the browser Cache API (<code>caches.open</code>) after the first load.</div>
                 </div>
             </div>
 
@@ -864,7 +867,7 @@ console.<span class="syntax-function">log</span>(result); <span class="syntax-co
 
         <section class="container gsap-section" id="pricing">
             <h2>Commercial <span class="text-gradient">Licenses</span></h2>
-            <p style="margin-top:24px;">Licensed under BSL 1.1 for non-commercial. Choose a commercial tier below.</p>
+            <p style="margin-top:24px;">Licensed under the Business Source License 1.1 &mdash; source-available, not OSI open source. Production use of any kind requires a paid license; the Additional Use Grant is None. Choose a tier below.</p>
             
             <div class="pricing-grid">
                 <div class="price-card">
@@ -1169,8 +1172,13 @@ console.<span class="syntax-function">log</span>(result); <span class="syntax-co
 
         // 4. Device Detection
         const detectWebGpu = document.getElementById('detect-webgpu');
-        if (detectWebGpu) {
-            const webgpuSupport = !!navigator.gpu;
+        if (detectWebGpu) (async () => {
+            let webgpuSupport = false;
+            if (navigator.gpu) {
+                // navigator.gpu can exist while requestAdapter() still returns null
+                // (no GPU, blocklisted driver, headless). Probe the adapter.
+                try { webgpuSupport = !!(await navigator.gpu.requestAdapter()); } catch (e) { webgpuSupport = false; }
+            }
             const cores = navigator.hardwareConcurrency || 'Unknown';
             const memory = navigator.deviceMemory ? `${navigator.deviceMemory} GB` : 'Unknown';
             
@@ -1184,7 +1192,7 @@ console.<span class="syntax-function">log</span>(result); <span class="syntax-co
             } else {
                 document.getElementById('detect-rec').textContent = 'INT4 Quantization (WASM)';
             }
-        }
+        })();
 
         // 5. Pipeline ScrollTrigger
         const pipelineProgress = document.querySelector('.pipeline-progress');

@@ -64,6 +64,11 @@ var ModelCache = class extends EventEmitter {
   async getModel(url, forceDownload = false) {
     if (typeof caches === "undefined") {
       const response2 = await fetch(url);
+      if (!response2.ok) {
+        throw new Error(
+          `EdgeInfer: failed to fetch model from ${url} - HTTP ${response2.status} ${response2.statusText}`
+        );
+      }
       return response2.arrayBuffer();
     }
     const cache = await caches.open(this.cacheName);
@@ -73,7 +78,11 @@ var ModelCache = class extends EventEmitter {
     }
     this.emit("downloadStart", url);
     const response = await fetch(url);
-    if (!response.ok) throw new Error(`Failed to fetch model from ${url}`);
+    if (!response.ok) {
+      throw new Error(
+        `EdgeInfer: failed to fetch model from ${url} - HTTP ${response.status} ${response.statusText}`
+      );
+    }
     await cache.put(url, response.clone());
     this.emit("downloadComplete", url);
     return response.arrayBuffer();
@@ -82,7 +91,8 @@ var ModelCache = class extends EventEmitter {
 
 // src/runtime-manager.ts
 var ort = __toESM(require("onnxruntime-web"));
-var RuntimeManager = class {
+var ADAPTER_TIMEOUT_MS = 5e3;
+var _RuntimeManager = class _RuntimeManager {
   /**
    * Detect GPU capabilities and recommend the best execution configuration.
    */
@@ -98,7 +108,10 @@ var RuntimeManager = class {
     if (typeof navigator !== "undefined" && "gpu" in navigator) {
       try {
         const gpu = navigator.gpu;
-        const adapter = await gpu.requestAdapter();
+        const adapter = await _RuntimeManager.withTimeout(
+          Promise.resolve(gpu.requestAdapter()),
+          ADAPTER_TIMEOUT_MS
+        );
         if (adapter) {
           capabilities.hasWebGPU = true;
           capabilities.provider = "webgpu";
@@ -142,29 +155,57 @@ var RuntimeManager = class {
   }
   /**
    * Create an ONNX inference session with automatic provider selection.
-   * Falls back gracefully if preferred provider fails.
+   * Falls back gracefully if the preferred provider fails.
+   *
+   * Returns BOTH the session and the provider that actually served it. The
+   * detected capability (`detectCapabilities().provider`) is only a preference:
+   * a provider can be detected as available and still fail to create a session
+   * (for example onnxruntime-web only registers the WebGPU execution provider
+   * in some builds/versions). Callers must report the returned `provider`, not
+   * the detected one, or `EdgeInfer.executionProvider` will lie.
    */
   static async createSession(modelBuffer, providers) {
     const requestedProviders = providers || [await this.getBestExecutionProvider()];
     for (const provider of requestedProviders) {
       try {
-        const session = await ort.InferenceSession.create(
+        const session2 = await ort.InferenceSession.create(
           modelBuffer,
           {
             executionProviders: [provider],
             graphOptimizationLevel: "all"
           }
         );
-        return session;
+        return { session: session2, provider };
       } catch (err) {
         console.warn(`EdgeInfer: Failed to create session with provider "${provider}", trying next...`, err);
       }
     }
     console.warn("EdgeInfer: All preferred providers failed, falling back to WASM");
-    return await ort.InferenceSession.create(modelBuffer, {
+    const session = await ort.InferenceSession.create(modelBuffer, {
       executionProviders: ["wasm"],
       graphOptimizationLevel: "all"
     });
+    return { session, provider: "wasm" };
+  }
+  /**
+   * Resolve `promise`, or resolve to `null` if it has not settled within `ms`.
+   * Used to stop a hung GPU driver from blocking model loading forever.
+   */
+  static withTimeout(promise, ms) {
+    let timer;
+    return Promise.race([
+      promise.then((v) => {
+        clearTimeout(timer);
+        return v;
+      }),
+      new Promise((resolve) => {
+        timer = setTimeout(() => {
+          console.warn(`EdgeInfer: navigator.gpu.requestAdapter() did not settle within ${ms}ms; falling back to WASM.`);
+          resolve(null);
+        }, ms);
+        if (typeof timer?.unref === "function") timer.unref();
+      })
+    ]);
   }
   /**
    * Estimate if a model of given size (bytes) can fit in available VRAM.
@@ -181,7 +222,8 @@ var RuntimeManager = class {
     this.cachedCapabilities = null;
   }
 };
-RuntimeManager.cachedCapabilities = null;
+_RuntimeManager.cachedCapabilities = null;
+var RuntimeManager = _RuntimeManager;
 
 // src/tokenizer.ts
 var Tokenizer = class _Tokenizer {
@@ -192,7 +234,10 @@ var Tokenizer = class _Tokenizer {
       this.inverseVocab.set(id, token);
     }
     this.merges = (config.merges || []).map((m) => {
-      const parts = m.split(" ");
+      if (Array.isArray(m)) {
+        return [m[0], m[1]];
+      }
+      const parts = String(m).split(" ");
       return [parts[0], parts[1]];
     });
     this.specialTokens = new Map(Object.entries(config.specialTokens || {}));
@@ -442,7 +487,7 @@ Production use of this software requires a valid paid commercial license key.
 Unlicensed commercial deployment constitutes copyright infringement under DMCA \xA7 1201.
 
 Purchase a commercial license key:
-\u{1F4E7} Email: soumyadebnath1661@gmail.com | \u{1F4DE} Phone: +91 7031648617
+\u{1F4E7} Email: soumyadebnath1661@gmail.com
 ================================================================================
       `);
       return false;
@@ -481,15 +526,17 @@ var EdgeInfer = class _EdgeInfer {
    * Create an EdgeInfer instance from a pre-loaded model buffer.
    */
   static async fromBuffer(buffer, options) {
-    const caps = await RuntimeManager.detectCapabilities();
-    const session = await RuntimeManager.createSession(buffer, options?.executionProviders);
+    const { session, provider } = await RuntimeManager.createSession(
+      buffer,
+      options?.executionProviders
+    );
     let tokenizer;
     if (options?.tokenizerUrl) {
       tokenizer = await Tokenizer.fromUrl(options.tokenizerUrl);
     } else if (options?.tokenizerConfig) {
       tokenizer = new Tokenizer(options.tokenizerConfig);
     }
-    return new _EdgeInfer(session, buffer.byteLength, caps.provider, tokenizer);
+    return new _EdgeInfer(session, buffer.byteLength, provider, tokenizer);
   }
   /**
    * Set or replace the tokenizer after model load.
@@ -500,8 +547,15 @@ var EdgeInfer = class _EdgeInfer {
   /**
    * Low-level tensor inference.
    * Pass raw tensor inputs and get raw tensor outputs.
+   *
+   * `shapes` optionally gives the ONNX tensor shape per input name. When an
+   * input has no explicit shape it defaults to `[1, data.length]`, which is
+   * correct for 2-D sequence inputs (`input_ids`, `attention_mask`) but wrong
+   * for anything of higher rank — a vision model declaring
+   * `pixel_values: [1,3,224,224]` is rank 4 and rejects a rank-2 tensor with
+   * "Invalid rank for input". Pass `shapes` for such models.
    */
-  async predict(inputs) {
+  async predict(inputs, shapes) {
     const tensorInputs = {};
     for (const [key, data] of Object.entries(inputs)) {
       let type;
@@ -512,7 +566,8 @@ var EdgeInfer = class _EdgeInfer {
       } else {
         type = "int32";
       }
-      tensorInputs[key] = new ort2.Tensor(type, data, [1, data.length]);
+      const shape = shapes?.[key] ?? [1, data.length];
+      tensorInputs[key] = new ort2.Tensor(type, data, shape);
     }
     const results = await this.session.run(tensorInputs);
     const outputMap = {};
@@ -594,11 +649,15 @@ var EdgeInfer = class _EdgeInfer {
    * Classify an image using a vision model.
    */
   async classifyImage(imageData, layout) {
-    const tensorData = ImageProcessor.imageDataToFloat32Array(imageData, { layout });
+    const effectiveLayout = layout ?? "NCHW";
+    const tensorData = ImageProcessor.imageDataToFloat32Array(imageData, { layout: effectiveLayout });
     const inputName = this._inputNames.find(
       (n) => n === "input" || n === "pixel_values" || n === "image"
     ) || this._inputNames[0];
-    const result = await this.predict({ [inputName]: tensorData });
+    const result = await this.predict(
+      { [inputName]: tensorData },
+      { [inputName]: _EdgeInfer.imageShape(imageData, effectiveLayout) }
+    );
     const output = result[this._outputNames[0]];
     if (!output) return [];
     const probs = this.softmax(output);
@@ -615,7 +674,10 @@ var EdgeInfer = class _EdgeInfer {
     const inputName = this._inputNames.find(
       (n) => n === "input" || n === "pixel_values" || n === "image"
     ) || this._inputNames[0];
-    const result = await this.predict({ [inputName]: tensorData });
+    const result = await this.predict(
+      { [inputName]: tensorData },
+      { [inputName]: _EdgeInfer.imageShape(imageData, "NCHW") }
+    );
     const output = result[this._outputNames[0]];
     const detections = [];
     if (output) {
@@ -668,6 +730,11 @@ var EdgeInfer = class _EdgeInfer {
     RuntimeManager.resetCache();
   }
   // --- Private Helpers ---
+  /** ONNX tensor shape for a 3-channel image tensor in the given layout. */
+  static imageShape(imageData, layout) {
+    const { width, height } = imageData;
+    return layout === "NCHW" ? [1, 3, height, width] : [1, height, width, 3];
+  }
   requireTokenizer() {
     if (!this.tokenizer) {
       throw new Error(

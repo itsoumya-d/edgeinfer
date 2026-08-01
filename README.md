@@ -2,7 +2,7 @@
 // Copyright (c) 2024-2026 Soumya Debnath. All Rights Reserved.
 // Licensed under the Business Source License 1.1 (BSL 1.1).
 // See LICENSE file for details. Production use requires a paid license.
-// Contact: soumyadebnath1661@gmail.com | +91 7031648617
+// Contact: soumyadebnath1661@gmail.com
 -->
 
 # EdgeInfer
@@ -32,14 +32,31 @@ Real exported symbols: `EdgeInfer`, `EventEmitter`, `ImageProcessor`, `ModelCach
 
 EdgeInfer is **not published on npm**. `npm install edgeinfer` will fail. Install from source:
 
-**Option 1 — jsDelivr CDN (no build step):**
+> **EdgeInfer requires `onnxruntime-web` at runtime.** It is a real dependency, not
+> bundled: `dist/index.mjs` contains `import * as ort from "onnxruntime-web"`. Because
+> that is a *bare module specifier*, a browser cannot resolve it on its own — loading
+> `dist/index.mjs` straight from a CDN fails with
+> `TypeError: Failed to resolve module specifier "onnxruntime-web"`.
+> Use **onnxruntime-web >= 1.21.0**: in 1.17–1.20 the package's root entry point
+> registers only the `cpu` and `wasm` execution providers, so requesting `webgpu`
+> fails and EdgeInfer silently falls back to WASM.
+
+**Option 1 — jsDelivr CDN (no build step). An import map is required:**
 ```html
+<script type="importmap">
+{
+  "imports": {
+    "onnxruntime-web": "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort.bundle.min.mjs"
+  }
+}
+</script>
 <script type="module">
   import { EdgeInfer } from 'https://cdn.jsdelivr.net/gh/itsoumya-d/edgeinfer@main/dist/index.mjs';
 </script>
 ```
+The import map must appear **before** the module script. Without it the import throws.
 
-**Option 2 — Clone and build:**
+**Option 2 — Clone and build (bundler resolves onnxruntime-web for you):**
 ```bash
 git clone https://github.com/itsoumya-d/edgeinfer.git
 cd edgeinfer
@@ -90,8 +107,22 @@ Returns `true` if `navigator.gpu` is present and the adapter request succeeds.
 #### `static async getCapabilities(): Promise<GPUCapabilities>`
 Returns `{ provider, hasWebGPU, hasWebNN, estimatedVRAM, recommendedQuantization }`.
 
-#### `async predict(inputs): Promise<Record<string, Float32Array>>`
+#### `async predict(inputs, shapes?): Promise<Record<string, Float32Array>>`
 Low-level: pass raw typed arrays keyed by ONNX input name, receive raw output tensors.
+`shapes` optionally supplies the ONNX tensor shape per input name. Inputs without an
+explicit shape default to `[1, data.length]`, which is correct for 2-D sequence inputs
+(`input_ids`, `attention_mask`) but **wrong for higher-rank inputs** — a vision model
+declaring `pixel_values: [1,3,224,224]` will reject a rank-2 tensor with
+`Invalid rank for input`. Pass `shapes` for those:
+```js
+await model.predict({ pixel_values: chw }, { pixel_values: [1, 3, 224, 224] });
+```
+
+Note on input dtype: `classify()`, `embed()` and `sentiment()` build **`Int32Array`**
+inputs (`tensor(int32)`). Most ONNX models exported from HuggingFace Transformers
+declare `input_ids`/`attention_mask` as **`tensor(int64)`** and will reject them with
+`Unexpected input data type. Actual: (tensor(int32)), expected: (tensor(int64))`.
+For those models, call `predict()` directly with `BigInt64Array` inputs.
 
 #### `async classify(text: string): Promise<ClassificationResult[]>`
 Requires a tokenizer (pass `tokenizerUrl` or `tokenizerConfig` in options, or call `setTokenizer()`). Throws `Error` with a clear message if no tokenizer is configured.
@@ -151,7 +182,16 @@ Constructor takes `{ vocab, merges?, specialTokens?, maxLength?, padTokenId?, un
 - **Model loading requires fetch.** `EdgeInfer.load()` calls `fetch()`. In Node.js, you need Node 18+ (native fetch) or a polyfill. WASM file loading may also require the `wasm-unsafe-eval` Content-Security-Policy directive in the browser.
 - **No text methods without a tokenizer.** `classify()`, `embed()`, `sentiment()` throw a clear `Error` if no tokenizer is configured: `EdgeInfer: No tokenizer configured. Either pass tokenizerUrl/tokenizerConfig...`. This is not a silent hang.
 - **Performance claims deleted.** The original README listed latency numbers (`~4ms`, `~25 tokens/sec`) measured on an M2 MacBook with Chrome WebGPU. These cannot be verified in a CI environment with no GPU. The table has been removed.
-- **Bundle size claim "< 5KB" is incorrect.** `dist/index.mjs` is ~20KB before gzip. The `onnxruntime-web` peer dependency adds ~1.5MB.
+- **Bundle size claim "< 5KB" is incorrect.** `dist/index.mjs` is ~24KB before gzip. `onnxruntime-web` is a real runtime **dependency** (not a peer dependency) and adds ~1.5MB plus the `.wasm` binaries.
+- **CDN use needs an import map.** See Installation. `dist/index.mjs` imports the bare specifier `onnxruntime-web`, which browsers cannot resolve unaided.
+- **`onnxruntime-web` must be >= 1.21.0** for the WebGPU execution provider to be registered by the root entry point, even though `package.json` currently allows `^1.17.0`.
+- **`estimatedVRAM` is not VRAM.** It is `max(maxBufferSize, maxStorageBufferBindingSize)` from the WebGPU adapter — per-buffer limits whose spec baselines are 256 MiB / 128 MiB. Browsers commonly report near-baseline values regardless of physical VRAM, so the `>= 8GB → fp16` branch of `recommendedQuantization` is effectively unreachable, and `RuntimeManager.canFitModel()` is unreliable. WebGPU exposes no total-VRAM API.
+- **No text generation.** There is no chat, streaming, KV cache or autoregressive decode loop. EdgeInfer cannot run Llama, Phi-3, Gemma or any generative LLM. It does classification, embeddings and vision.
+- **No quantization.** `recommendedQuantization` is a string hint; EdgeInfer never quantizes weights. Models must be pre-quantized.
+- **No GGUF, no audio.** ONNX only. No Whisper/speech pipeline exists.
+- **Tokenizer is WordPiece-only and always lowercases.** `TokenizerConfig.merges` is accepted and normalised, but `applyBPE()` is never called, so true BPE (GPT-2 style) tokenization is not performed. `preTokenize()` unconditionally lowercases, so cased models are tokenized incorrectly.
+- **`embed()` can silently mis-pool.** Mean pooling infers `hiddenDim = output.length / seqLen`. If a model's first output is already pooled (`[1, hidden]`) and `hidden` happens to be divisible by the token count, the guard does not fire and the vector is averaged into `hidden/seqLen` dimensions instead of being returned as-is.
+- **Model download has no timeout.** `EdgeInfer.load()` awaits `fetch()` with no deadline; a server that accepts the connection and never responds leaves the promise pending indefinitely. Pass your own `AbortSignal`-wrapped fetch, or a watchdog, if you need bounded load time.
 - **No production adopters yet.** APIs may change without notice.
 
 ---
@@ -180,6 +220,6 @@ Constructor takes `{ vocab, merges?, specialTokens?, maxLength?, padTokenId?, un
 
 **Free use:** Personal evaluation, academic research, open-source contribution.
 
-Contact: soumyadebnath1661@gmail.com | +91 7031648617 | github.com/itsoumya-d
+Contact: soumyadebnath1661@gmail.com | github.com/itsoumya-d
 
 © 2024-2026 Soumya Debnath. All Rights Reserved.

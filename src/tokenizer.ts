@@ -1,11 +1,16 @@
 // Copyright (c) 2024-2026 Soumya Debnath. All Rights Reserved.
 // Licensed under the Business Source License 1.1 (BSL 1.1).
 // See LICENSE file for details. Production use requires a paid license.
-// Contact: soumyadebnath1661@gmail.com | +91 7031648617
+// Contact: soumyadebnath1661@gmail.com
 
 export interface TokenizerConfig {
   vocab: Record<string, number>;
-  merges?: string[];
+  /**
+   * BPE merge rules, either `"a b"` (older HuggingFace tokenizer.json) or
+   * `["a", "b"]` (newer tokenizer.json). Accepted and normalised, but note
+   * that `encode()` currently implements WordPiece only — see `applyBPE`.
+   */
+  merges?: Array<string | [string, string]>;
   specialTokens?: Record<string, number>;
   maxLength?: number;
   padTokenId?: number;
@@ -44,8 +49,16 @@ export class Tokenizer {
       this.inverseVocab.set(id, token);
     }
 
-    this.merges = (config.merges || []).map(m => {
-      const parts = m.split(' ');
+    // `merges` may arrive in either HuggingFace form:
+    //   older tokenizer.json: ["a b", "lo w"]         (space-separated string)
+    //   newer tokenizer.json: [["a","b"], ["lo","w"]] (pre-split pair)
+    // Calling .split() on the array form throws "m.split is not a function",
+    // so both shapes are handled here.
+    this.merges = ((config.merges || []) as Array<string | [string, string]>).map(m => {
+      if (Array.isArray(m)) {
+        return [m[0], m[1]] as [string, string];
+      }
+      const parts = String(m).split(' ');
       return [parts[0], parts[1]] as [string, string];
     });
 

@@ -45,7 +45,6 @@ A company running 1M inference requests/day via OpenAI:
 **Soumya Debnath** — Creator & Sole Rights Holder
 
 - 📧 Email: [soumyadebnath1661@gmail.com](mailto:soumyadebnath1661@gmail.com)
-- 📞 Phone / WhatsApp: [+91 7031648617](tel:+917031648617)
 - 🐙 GitHub: [github.com/itsoumya-d](https://github.com/itsoumya-d)
 
 ---
