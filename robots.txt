@@ -13,4 +13,4 @@ Allow: /
 User-agent: Google-Extended
 Allow: /
 
-Sitemap: https://edgeinfer.com/sitemap.xml
+Sitemap: https://itsoumya-d.github.io/edgeinfer/sitemap.xml
