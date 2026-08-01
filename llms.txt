@@ -1,6 +1,6 @@
 # EdgeInfer
 
-> Pre-release TypeScript SDK for on-device ONNX model inference via WebGPU and WebAssembly. Not on npm. WebGPU absent in Node — falls back to WASM automatically.
+> EdgeInfer runs small ONNX models inside the browser on WebGPU or WebAssembly, so inference costs nothing per call and user data never leaves the device.
 
 EdgeInfer wraps ONNX Runtime Web to run ML models in the browser. It auto-selects the best execution provider (WebGPU > WebNN > WASM), caches models via the Cache API, and provides high-level methods for text classification, embeddings, sentiment analysis, and image classification. The package is pre-release, has no npm publication, and no production adopters as of 2026.
 
