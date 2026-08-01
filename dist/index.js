@@ -487,7 +487,7 @@ Production use of this software requires a valid paid commercial license key.
 Unlicensed commercial deployment constitutes copyright infringement under DMCA \xA7 1201.
 
 Purchase a commercial license key:
-\u{1F4E7} Email: soumyadebnath1661@gmail.com
+\u{1F4E7} Email: soumyadebnath1619@gmail.com
 ================================================================================
       `);
       return false;
@@ -496,7 +496,7 @@ Purchase a commercial license key:
   }
 };
 LicenseValidator.AUTHOR = "Soumya Debnath";
-LicenseValidator.CONTACT = "soumyadebnath1661@gmail.com";
+LicenseValidator.CONTACT = "soumyadebnath1619@gmail.com";
 
 // src/edgeinfer.ts
 var ort2 = __toESM(require("onnxruntime-web"));

@@ -19,7 +19,7 @@
 ### 3. Commercial License Key Activation
 To use EDGEINFER in a commercial product, SaaS, or internal business tool:
 - **Licensor**: Soumya Debnath
-- **Email**: [soumyadebnath1661@gmail.com](mailto:soumyadebnath1661@gmail.com)
+- **Email**: [soumyadebnath1619@gmail.com](mailto:soumyadebnath1619@gmail.com)
 - **License Terms & Pricing**: See `COMMERCIAL_LICENSE.md`
 
 © 2024-2026 Soumya Debnath. All Rights Reserved.

@@ -2,7 +2,7 @@
 // Copyright (c) 2024-2026 Soumya Debnath. All Rights Reserved.
 // Dual-licensed: AGPL-3.0-or-later (free, see LICENSE) OR a commercial licence
 // (see COMMERCIAL_LICENSE.md) if you cannot meet the AGPL's source-disclosure terms.
-// Contact: soumyadebnath1661@gmail.com
+// Contact: soumyadebnath1619@gmail.com
 -->
 
 # EdgeInfer
