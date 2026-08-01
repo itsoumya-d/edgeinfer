@@ -1,25 +1,3 @@
-Copyright (c) 2024-2026 Soumya Debnath <soumyadebnath1661@gmail.com>
-
-This software is DUAL-LICENSED. You may use it under EITHER of the following,
-at your option:
-
-  1. The GNU Affero General Public License, version 3 or (at your option) any
-     later version — the full text of which follows below. This option is free
-     of charge and requires no permission. It does require that if you modify
-     this software and make it available to users over a network, you make your
-     modified source code available to those users under the same licence.
-
-  2. A commercial licence, for organisations that cannot or do not wish to meet
-     the AGPL's source-disclosure obligations. See COMMERCIAL_LICENSE.md.
-
-SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-Commercial
-
-Previously this software was distributed under the Business Source License 1.1.
-It has been relicensed as above. The BSL grant is superseded; AGPL-3.0-or-later
-is now available to everyone immediately, ahead of the original 2030 change date.
-
-================================================================================
-
                     GNU AFFERO GENERAL PUBLIC LICENSE
                        Version 3, 19 November 2007
 
