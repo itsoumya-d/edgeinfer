@@ -128,7 +128,16 @@ For those models, call `predict()` directly with `BigInt64Array` inputs.
 Requires a tokenizer (pass `tokenizerUrl` or `tokenizerConfig` in options, or call `setTokenizer()`). Throws `Error` with a clear message if no tokenizer is configured.
 
 #### `async embed(text: string): Promise<Float32Array>`
-Returns mean-pooled, L2-normalized embedding vector. Requires tokenizer.
+Returns an L2-normalized embedding vector from the first model output. Requires tokenizer
+and a `float32` output with one of these ONNX shapes:
+
+- `[hidden]` or `[1, hidden]`: already pooled; preserves every embedding dimension.
+- `[1, sequence, hidden]`: mean-pools non-masked tokens, then normalizes. The sequence
+  length must match the tokenizer's attention mask. An all-masked sequence returns zeros.
+
+Other shapes, batched outputs, non-`float32` outputs, and sequence/mask mismatches throw
+clear errors rather than guessing the shape from the flattened array length. Use
+`predict()` for model-specific postprocessing; its raw flattened output API is unchanged.
 
 #### `async embedMatryoshka(text: string, dimension: number): Promise<Float32Array>`
 Truncates the embedding to `dimension` and re-normalizes (Matryoshka MRL).
@@ -190,7 +199,6 @@ Constructor takes `{ vocab, merges?, specialTokens?, maxLength?, padTokenId?, un
 - **No quantization.** `recommendedQuantization` is a string hint; EdgeInfer never quantizes weights. Models must be pre-quantized.
 - **No GGUF, no audio.** ONNX only. No Whisper/speech pipeline exists.
 - **Tokenizer is WordPiece-only and always lowercases.** `TokenizerConfig.merges` is accepted and normalised, but `applyBPE()` is never called, so true BPE (GPT-2 style) tokenization is not performed. `preTokenize()` unconditionally lowercases, so cased models are tokenized incorrectly.
-- **`embed()` can silently mis-pool.** Mean pooling infers `hiddenDim = output.length / seqLen`. If a model's first output is already pooled (`[1, hidden]`) and `hidden` happens to be divisible by the token count, the guard does not fire and the vector is averaged into `hidden/seqLen` dimensions instead of being returned as-is.
 - **Model download has no timeout.** `EdgeInfer.load()` awaits `fetch()` with no deadline; a server that accepts the connection and never responds leaves the promise pending indefinitely. Pass your own `AbortSignal`-wrapped fetch, or a watchdog, if you need bounded load time.
 - **No production adopters yet.** APIs may change without notice.
 

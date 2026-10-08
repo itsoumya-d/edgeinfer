@@ -259,11 +259,13 @@ declare class EdgeInfer {
      * Release all resources (ONNX session, GPU memory).
      */
     dispose(): void;
+    /** Run without discarding the output tensor dimensions needed by embed(). */
+    private runInference;
     /** ONNX tensor shape for a 3-channel image tensor in the given layout. */
     private static imageShape;
     private requireTokenizer;
     private softmax;
-    private meanPool;
+    private poolEmbedding;
     private l2Normalize;
 }
 
