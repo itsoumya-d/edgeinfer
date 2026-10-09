@@ -104,22 +104,7 @@ export class EdgeInfer {
     inputs: Record<string, Float32Array | Int32Array | BigInt64Array>,
     shapes?: Record<string, readonly number[]>
   ): Promise<Record<string, Float32Array>> {
-    const tensorInputs: Record<string, ort.Tensor> = {};
-
-    for (const [key, data] of Object.entries(inputs)) {
-      let type: 'float32' | 'int32' | 'int64';
-      if (data instanceof Float32Array) {
-        type = 'float32';
-      } else if (data instanceof BigInt64Array) {
-        type = 'int64';
-      } else {
-        type = 'int32';
-      }
-      const shape = shapes?.[key] ?? [1, data.length];
-      tensorInputs[key] = new ort.Tensor(type, data, shape as number[]);
-    }
-
-    const results = await this.session.run(tensorInputs);
+    const results = await this.runInference(inputs, shapes);
     const outputMap: Record<string, Float32Array> = {};
 
     for (const [key, tensor] of Object.entries(results)) {
@@ -178,15 +163,16 @@ export class EdgeInfer {
       inputs['token_type_ids'] = new Int32Array(encoding.inputIds.length);
     }
 
-    const result = await this.predict(inputs);
+    const result = await this.runInference(inputs);
     const output = result[this._outputNames[0]];
     
     if (!output) return new Float32Array();
 
-    // Mean pooling: average across token dimension
-    // Output shape is typically [1, seq_len, hidden_dim]
-    // We want [hidden_dim] by averaging across seq_len
-    return this.meanPool(output, encoding.attentionMask);
+    if (output.type !== 'float32') {
+      throw new Error('EdgeInfer: Embedding output must be a float32 tensor.');
+    }
+
+    return this.poolEmbedding(output.data as Float32Array, output.dims, encoding.attentionMask);
   }
 
   /**
@@ -318,6 +304,29 @@ export class EdgeInfer {
 
   // --- Private Helpers ---
 
+  /** Run without discarding the output tensor dimensions needed by embed(). */
+  private async runInference(
+    inputs: Record<string, Float32Array | Int32Array | BigInt64Array>,
+    shapes?: Record<string, readonly number[]>
+  ): Promise<ort.InferenceSession.ReturnType> {
+    const tensorInputs: Record<string, ort.Tensor> = {};
+
+    for (const [key, data] of Object.entries(inputs)) {
+      let type: 'float32' | 'int32' | 'int64';
+      if (data instanceof Float32Array) {
+        type = 'float32';
+      } else if (data instanceof BigInt64Array) {
+        type = 'int64';
+      } else {
+        type = 'int32';
+      }
+      const shape = shapes?.[key] ?? [1, data.length];
+      tensorInputs[key] = new ort.Tensor(type, data, shape as number[]);
+    }
+
+    return this.session.run(tensorInputs);
+  }
+
   /** ONNX tensor shape for a 3-channel image tensor in the given layout. */
   private static imageShape(
     imageData: { width: number; height: number },
@@ -353,14 +362,31 @@ export class EdgeInfer {
     return exps;
   }
 
-  private meanPool(embeddings: Float32Array, attentionMask: Int32Array): Float32Array {
-    // Assume output is [1, seq_len, hidden_dim] flattened
-    const seqLen = attentionMask.length;
-    const hiddenDim = embeddings.length / seqLen;
+  private poolEmbedding(
+    embeddings: Float32Array,
+    dims: readonly number[],
+    attentionMask: Int32Array
+  ): Float32Array {
+    // The shape, not divisibility by input length, distinguishes pooled output
+    // from per-token output. Both pooled forms retain every model dimension.
+    if ((dims.length === 1 || (dims.length === 2 && dims[0] === 1)) &&
+        dims[dims.length - 1] > 0) {
+      return this.l2Normalize(embeddings);
+    }
 
-    if (hiddenDim < 1 || !Number.isInteger(hiddenDim)) {
-      // Output is already pooled (e.g., [CLS] token output)
-      return embeddings;
+    if (dims.length !== 3 || dims[0] !== 1 || dims[1] < 1 || dims[2] < 1) {
+      throw new Error(
+        `EdgeInfer: Unsupported embedding output shape [${dims.join(', ')}]. ` +
+        'Expected [hidden], [1, hidden], or [1, sequence, hidden].'
+      );
+    }
+
+    const [, seqLen, hiddenDim] = dims;
+    if (seqLen !== attentionMask.length) {
+      throw new Error(
+        `EdgeInfer: Embedding sequence length ${seqLen} does not match ` +
+        `attention mask length ${attentionMask.length}.`
+      );
     }
 
     const pooled = new Float32Array(hiddenDim);

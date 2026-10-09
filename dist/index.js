@@ -556,20 +556,7 @@ var EdgeInfer = class _EdgeInfer {
    * "Invalid rank for input". Pass `shapes` for such models.
    */
   async predict(inputs, shapes) {
-    const tensorInputs = {};
-    for (const [key, data] of Object.entries(inputs)) {
-      let type;
-      if (data instanceof Float32Array) {
-        type = "float32";
-      } else if (data instanceof BigInt64Array) {
-        type = "int64";
-      } else {
-        type = "int32";
-      }
-      const shape = shapes?.[key] ?? [1, data.length];
-      tensorInputs[key] = new ort2.Tensor(type, data, shape);
-    }
-    const results = await this.session.run(tensorInputs);
+    const results = await this.runInference(inputs, shapes);
     const outputMap = {};
     for (const [key, tensor] of Object.entries(results)) {
       outputMap[key] = tensor.data;
@@ -613,10 +600,13 @@ var EdgeInfer = class _EdgeInfer {
     if (this._inputNames.includes("token_type_ids")) {
       inputs["token_type_ids"] = new Int32Array(encoding.inputIds.length);
     }
-    const result = await this.predict(inputs);
+    const result = await this.runInference(inputs);
     const output = result[this._outputNames[0]];
     if (!output) return new Float32Array();
-    return this.meanPool(output, encoding.attentionMask);
+    if (output.type !== "float32") {
+      throw new Error("EdgeInfer: Embedding output must be a float32 tensor.");
+    }
+    return this.poolEmbedding(output.data, output.dims, encoding.attentionMask);
   }
   /**
    * Generate Matryoshka-truncated embeddings at specified dimension.
@@ -730,6 +720,23 @@ var EdgeInfer = class _EdgeInfer {
     RuntimeManager.resetCache();
   }
   // --- Private Helpers ---
+  /** Run without discarding the output tensor dimensions needed by embed(). */
+  async runInference(inputs, shapes) {
+    const tensorInputs = {};
+    for (const [key, data] of Object.entries(inputs)) {
+      let type;
+      if (data instanceof Float32Array) {
+        type = "float32";
+      } else if (data instanceof BigInt64Array) {
+        type = "int64";
+      } else {
+        type = "int32";
+      }
+      const shape = shapes?.[key] ?? [1, data.length];
+      tensorInputs[key] = new ort2.Tensor(type, data, shape);
+    }
+    return this.session.run(tensorInputs);
+  }
   /** ONNX tensor shape for a 3-channel image tensor in the given layout. */
   static imageShape(imageData, layout) {
     const { width, height } = imageData;
@@ -758,11 +765,20 @@ var EdgeInfer = class _EdgeInfer {
     }
     return exps;
   }
-  meanPool(embeddings, attentionMask) {
-    const seqLen = attentionMask.length;
-    const hiddenDim = embeddings.length / seqLen;
-    if (hiddenDim < 1 || !Number.isInteger(hiddenDim)) {
-      return embeddings;
+  poolEmbedding(embeddings, dims, attentionMask) {
+    if ((dims.length === 1 || dims.length === 2 && dims[0] === 1) && dims[dims.length - 1] > 0) {
+      return this.l2Normalize(embeddings);
+    }
+    if (dims.length !== 3 || dims[0] !== 1 || dims[1] < 1 || dims[2] < 1) {
+      throw new Error(
+        `EdgeInfer: Unsupported embedding output shape [${dims.join(", ")}]. Expected [hidden], [1, hidden], or [1, sequence, hidden].`
+      );
+    }
+    const [, seqLen, hiddenDim] = dims;
+    if (seqLen !== attentionMask.length) {
+      throw new Error(
+        `EdgeInfer: Embedding sequence length ${seqLen} does not match attention mask length ${attentionMask.length}.`
+      );
     }
     const pooled = new Float32Array(hiddenDim);
     let maskSum = 0;
