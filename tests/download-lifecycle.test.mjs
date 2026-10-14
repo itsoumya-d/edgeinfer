@@ -95,3 +95,26 @@ test('release failure does not hide the original tokenizer failure', async t => 
  t.mock.method(globalThis,'fetch',async()=>new Response('missing',{status:404}));
  await assert.rejects(EdgeInfer.fromBuffer(new ArrayBuffer(0),{tokenizerUrl:'https://example.invalid'}),/404/);
 });
+
+test('model and tokenizer loads work without AbortSignal.throwIfAborted', async t => {
+ const cache = cacheFixture(t);
+ const descriptor = Object.getOwnPropertyDescriptor(AbortSignal.prototype, 'throwIfAborted');
+ Object.defineProperty(AbortSignal.prototype, 'throwIfAborted', {configurable:true,value:undefined});
+ t.after(() => Object.defineProperty(AbortSignal.prototype, 'throwIfAborted', descriptor));
+ t.mock.method(globalThis,'fetch',async url => new Response(url.includes('tokenizer') ? '{"hello":1}' : 'model'));
+ assert.equal(new TextDecoder().decode(await new ModelCache().getModel('https://example.invalid/model')), 'model');
+ assert.ok(await Tokenizer.fromUrl('https://example.invalid/tokenizer'));
+ const controller = new AbortController();controller.abort();
+ await assert.rejects(new ModelCache().getModel('https://example.invalid/aborted',false,{signal:controller.signal}),{name:'AbortError'});
+ assert.equal(cache.puts.length,1);
+});
+for (const [status, headers] of [[206, {}], [200, {'content-range':'bytes 0-3/100'}]]) {
+ test(`partial response ${status} cannot overwrite a complete cached model`, async t => {
+  const cache=cacheFixture(t), url='https://example.invalid/model';
+  cache.values.set(url,new Response('complete'));
+  t.mock.method(globalThis,'fetch',async () => new Response('part',{status,headers}));
+  await assert.rejects(new ModelCache().getModel(url,true),/partial/i);
+  assert.deepEqual(cache.puts,[]);
+  assert.equal(await cache.values.get(url).text(),'complete');
+ });
+}
