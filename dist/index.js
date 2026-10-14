@@ -56,6 +56,9 @@ var EventEmitter = class {
 };
 
 // src/download.ts
+function checkDownloadAbort(signal) {
+  if (signal?.aborted) throw signal.reason ?? new DOMException("Download aborted", "AbortError");
+}
 async function withDownloadDeadline(operation, options = {}) {
   const timeout = options.downloadTimeoutMs ?? 12e4;
   if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 2147483647) {
@@ -69,9 +72,9 @@ async function withDownloadDeadline(operation, options = {}) {
   let onAbort = () => {
   };
   try {
-    controller.signal.throwIfAborted();
+    checkDownloadAbort(controller.signal);
     const cancelled = new Promise((_, reject) => {
-      onAbort = () => reject(controller.signal.reason);
+      onAbort = () => reject(controller.signal.reason ?? new DOMException("Download aborted", "AbortError"));
       controller.signal.addEventListener("abort", onAbort, { once: true });
     });
     return await Promise.race([operation(controller.signal), cancelled]);
@@ -91,25 +94,29 @@ var ModelCache = class extends EventEmitter {
   async getModel(url, forceDownload = false, options = {}) {
     return withDownloadDeadline(async (signal) => {
       const cache = typeof caches === "undefined" ? void 0 : await caches.open(this.cacheName);
-      signal.throwIfAborted();
+      checkDownloadAbort(signal);
       const cached = !forceDownload && cache ? await cache.match(url) : void 0;
-      signal.throwIfAborted();
+      checkDownloadAbort(signal);
       if (cached) {
         const buffer2 = await cached.arrayBuffer();
-        signal.throwIfAborted();
+        checkDownloadAbort(signal);
         return buffer2;
       }
       this.emit("downloadStart", url);
-      signal.throwIfAborted();
+      checkDownloadAbort(signal);
       const response = await fetch(url, { signal });
       if (!response.ok) {
         await response.body?.cancel();
         throw new Error(`EdgeInfer: failed to fetch model from ${url} - HTTP ${response.status} ${response.statusText}`);
       }
+      if (response.status === 206 || response.headers.has("content-range")) {
+        await response.body?.cancel();
+        throw new Error("EdgeInfer: partial model responses are not supported");
+      }
       const buffer = await response.arrayBuffer();
-      signal.throwIfAborted();
+      checkDownloadAbort(signal);
       if (cache) await cache.put(url, new Response(buffer, { headers: response.headers }));
-      signal.throwIfAborted();
+      checkDownloadAbort(signal);
       this.emit("downloadComplete", url);
       return buffer;
     }, options);
@@ -571,20 +578,20 @@ var EdgeInfer = class _EdgeInfer {
    * Create an EdgeInfer instance from a pre-loaded model buffer.
    */
   static async fromBuffer(buffer, options) {
-    options?.signal?.throwIfAborted();
+    checkDownloadAbort(options?.signal);
     const { session, provider } = await RuntimeManager.createSession(
       buffer,
       options?.executionProviders
     );
     try {
-      options?.signal?.throwIfAborted();
+      checkDownloadAbort(options?.signal);
       let tokenizer;
       if (options?.tokenizerUrl) {
         tokenizer = await Tokenizer.fromUrl(options.tokenizerUrl, options);
       } else if (options?.tokenizerConfig) {
         tokenizer = new Tokenizer(options.tokenizerConfig);
       }
-      options?.signal?.throwIfAborted();
+      checkDownloadAbort(options?.signal);
       return new _EdgeInfer(session, buffer.byteLength, provider, tokenizer);
     } catch (error) {
       try {

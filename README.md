@@ -198,8 +198,8 @@ Constructor takes `{ vocab, merges?, specialTokens?, maxLength?, padTokenId?, un
 - **No text generation.** There is no chat, streaming, KV cache or autoregressive decode loop. EdgeInfer cannot run Llama, Phi-3, Gemma or any generative LLM. It does classification, embeddings and vision.
 - **No quantization.** `recommendedQuantization` is a string hint; EdgeInfer never quantizes weights. Models must be pre-quantized.
 - **No GGUF, no audio.** ONNX only. No Whisper/speech pipeline exists.
-- **Tokenizer is WordPiece-only and always lowercases.** `TokenizerConfig.merges` is accepted and normalised, but `applyBPE()` is never called, so true BPE (GPT-2 style) tokenization is not performed. `preTokenize()` unconditionally lowercases, so cased models are tokenized incorrectly.
-- **Model download has no timeout.** `EdgeInfer.load()` awaits `fetch()` with no deadline; a server that accepts the connection and never responds leaves the promise pending indefinitely. Pass your own `AbortSignal`-wrapped fetch, or a watchdog, if you need bounded load time.
+- **Tokenizer is WordPiece-only.** BPE is not implemented. Legacy configurations lowercase by default; use explicit `lowercase: false` or a supported normalizer for cased vocabularies. Unsupported normalizers fail rather than silently change token IDs.
+- **Downloads have per-transfer deadlines, not whole-load deadlines.** Model/tokenizer headers and bodies default to 120 seconds each and support cancellation. Runtime initialization and inference are not covered. Partial HTTP model responses are rejected; range assembly is not implemented.
 - **No production adopters yet.** APIs may change without notice.
 
 ---

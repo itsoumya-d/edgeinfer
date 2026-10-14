@@ -5,6 +5,11 @@ export interface DownloadOptions {
   downloadTimeoutMs?: number;
 }
 
+/** Compatible with AbortController implementations without throwIfAborted. */
+export function checkDownloadAbort(signal?: AbortSignal): void {
+  if (signal?.aborted) throw signal.reason ?? new DOMException('Download aborted', 'AbortError');
+}
+
 export async function withDownloadDeadline<T>(operation: (signal: AbortSignal) => Promise<T>, options: DownloadOptions = {}): Promise<T> {
   const timeout = options.downloadTimeoutMs ?? 120000;
   if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 2147483647) {
@@ -17,9 +22,9 @@ export async function withDownloadDeadline<T>(operation: (signal: AbortSignal) =
   const timer = setTimeout(() => controller.abort(new DOMException('Download deadline exceeded', 'TimeoutError')), timeout);
   let onAbort: () => void = () => {};
   try {
-    controller.signal.throwIfAborted();
+    checkDownloadAbort(controller.signal);
     const cancelled = new Promise<never>((_, reject) => {
-      onAbort = () => reject(controller.signal.reason);
+      onAbort = () => reject(controller.signal.reason ?? new DOMException('Download aborted', 'AbortError'));
       controller.signal.addEventListener('abort', onAbort, { once: true });
     });
     return await Promise.race([operation(controller.signal), cancelled]);

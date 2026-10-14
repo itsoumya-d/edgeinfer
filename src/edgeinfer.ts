@@ -6,7 +6,7 @@
 import { LicenseValidator } from './license-validator';
 import * as ort from 'onnxruntime-web';
 import { ModelCache } from './model-cache';
-import { DownloadOptions } from './download';
+import { DownloadOptions, checkDownloadAbort } from './download';
 import { RuntimeManager, GPUCapabilities } from './runtime-manager';
 import { ModelOptions, ClassificationResult, Detection } from './types';
 import { Tokenizer, TokenizerConfig, EncodingResult } from './tokenizer';
@@ -67,14 +67,14 @@ export class EdgeInfer {
   static async fromBuffer(buffer: ArrayBuffer, options?: EdgeInferOptions): Promise<EdgeInfer> {
     // `provider` is the provider that actually created the session, which is
     // not necessarily the detected preference — see RuntimeManager.createSession.
-    options?.signal?.throwIfAborted();
+    checkDownloadAbort(options?.signal);
     const { session, provider } = await RuntimeManager.createSession(
       buffer,
       options?.executionProviders
     );
 
     try {
-      options?.signal?.throwIfAborted();
+      checkDownloadAbort(options?.signal);
       // Load tokenizer if URL provided
       let tokenizer: Tokenizer | undefined;
       if (options?.tokenizerUrl) {
@@ -83,7 +83,7 @@ export class EdgeInfer {
         tokenizer = new Tokenizer(options.tokenizerConfig);
       }
 
-      options?.signal?.throwIfAborted();
+      checkDownloadAbort(options?.signal);
       return new EdgeInfer(session, buffer.byteLength, provider, tokenizer);
     } catch (error) {
       try { await session.release(); } catch { /* Preserve the original load failure. */ }
