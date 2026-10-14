@@ -10,3 +10,5 @@ export * from './runtime-manager';
 export * from './tokenizer';
 export * from './image-processor';
 export * from './edgeinfer';
+
+export type { DownloadOptions } from './download';

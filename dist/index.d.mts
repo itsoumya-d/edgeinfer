@@ -21,10 +21,17 @@ declare class EventEmitter {
     emit(event: string, ...args: any[]): void;
 }
 
+/** Per-transfer options; covers response headers and the entire response body. */
+interface DownloadOptions {
+    signal?: AbortSignal;
+    /** Default 120 seconds per model/tokenizer transfer, not an inference timeout. */
+    downloadTimeoutMs?: number;
+}
+
 declare class ModelCache extends EventEmitter {
     private cacheName;
     constructor(cacheName?: string);
-    getModel(url: string, forceDownload?: boolean): Promise<ArrayBuffer>;
+    getModel(url: string, forceDownload?: boolean, options?: DownloadOptions): Promise<ArrayBuffer>;
 }
 
 interface GPUCapabilities {
@@ -90,6 +97,8 @@ declare class RuntimeManager {
 
 interface TokenizerConfig {
     vocab: Record<string, number>;
+    /** Keep the legacy uncased default; set false for cased WordPiece vocabularies. */
+    lowercase?: boolean;
     /**
      * BPE merge rules, either `"a b"` (older HuggingFace tokenizer.json) or
      * `["a", "b"]` (newer tokenizer.json). Accepted and normalised, but note
@@ -114,6 +123,7 @@ interface EncodingResult {
  * and decoding token IDs back to text.
  */
 declare class Tokenizer {
+    private lowercase;
     private vocab;
     private inverseVocab;
     private merges;
@@ -128,7 +138,8 @@ declare class Tokenizer {
     /**
      * Load tokenizer configuration from a JSON URL (tokenizer.json or vocab.json).
      */
-    static fromUrl(url: string): Promise<Tokenizer>;
+    static fromUrl(url: string, options?: DownloadOptions): Promise<Tokenizer>;
+    private static normalizerLowercase;
     /**
      * Encode text into token IDs with attention mask.
      * Handles WordPiece tokenization for BERT-like models.
@@ -168,7 +179,7 @@ declare class ImageProcessor {
     }): Float32Array;
 }
 
-interface EdgeInferOptions extends ModelOptions {
+interface EdgeInferOptions extends ModelOptions, DownloadOptions {
     licenseKey?: string;
     tokenizerUrl?: string;
     tokenizerConfig?: TokenizerConfig;
@@ -269,4 +280,4 @@ declare class EdgeInfer {
     private l2Normalize;
 }
 
-export { type ClassificationResult, type Detection, EdgeInfer, type EdgeInferOptions, type EncodingResult, EventEmitter, type GPUCapabilities, ImageProcessor, ModelCache, type ModelOptions, RuntimeManager, Tokenizer, type TokenizerConfig };
+export { type ClassificationResult, type Detection, type DownloadOptions, EdgeInfer, type EdgeInferOptions, type EncodingResult, EventEmitter, type GPUCapabilities, ImageProcessor, ModelCache, type ModelOptions, RuntimeManager, Tokenizer, type TokenizerConfig };

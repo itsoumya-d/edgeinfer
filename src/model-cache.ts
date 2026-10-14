@@ -4,6 +4,7 @@
 // Contact: soumyadebnath1619@gmail.com
 
 import { EventEmitter } from './events';
+import { withDownloadDeadline, DownloadOptions } from './download';
 
 export class ModelCache extends EventEmitter {
   private cacheName: string;
@@ -13,40 +14,31 @@ export class ModelCache extends EventEmitter {
     this.cacheName = cacheName;
   }
 
-  async getModel(url: string, forceDownload: boolean = false): Promise<ArrayBuffer> {
-    if (typeof caches === 'undefined') {
-      // No Cache API (Node.js, or a browser without it): plain fetch.
-      // The HTTP status MUST still be checked here. Without this, a 404/500
-      // error page body is handed straight to the ONNX parser, which then
-      // fails with an opaque "protobuf parsing failed" instead of telling the
-      // caller the model URL was wrong.
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(
-          `EdgeInfer: failed to fetch model from ${url} - HTTP ${response.status} ${response.statusText}`
-        );
+  async getModel(url: string, forceDownload: boolean = false, options: DownloadOptions = {}): Promise<ArrayBuffer> {
+    return withDownloadDeadline(async signal => {
+      const cache = typeof caches === 'undefined' ? undefined : await caches.open(this.cacheName);
+      signal.throwIfAborted();
+      const cached = !forceDownload && cache ? await cache.match(url) : undefined;
+      signal.throwIfAborted();
+      if (cached) {
+        const buffer = await cached.arrayBuffer();
+        signal.throwIfAborted();
+        return buffer;
       }
-      return response.arrayBuffer();
-    }
-
-    const cache = await caches.open(this.cacheName);
-    const cachedResponse = await cache.match(url);
-
-    if (cachedResponse && !forceDownload) {
-      return cachedResponse.arrayBuffer();
-    }
-
-    this.emit('downloadStart', url);
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(
-        `EdgeInfer: failed to fetch model from ${url} - HTTP ${response.status} ${response.statusText}`
-      );
-    }
-
-    await cache.put(url, response.clone());
-    this.emit('downloadComplete', url);
-
-    return response.arrayBuffer();
+      this.emit('downloadStart', url);
+      signal.throwIfAborted();
+      const response = await fetch(url, { signal });
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new Error(`EdgeInfer: failed to fetch model from ${url} - HTTP ${response.status} ${response.statusText}`);
+      }
+      // Read completely before committing, so aborted/truncated bodies cannot be cached.
+      const buffer = await response.arrayBuffer();
+      signal.throwIfAborted();
+      if (cache) await cache.put(url, new Response(buffer, { headers: response.headers }));
+      signal.throwIfAborted();
+      this.emit('downloadComplete', url);
+      return buffer;
+    }, options);
   }
 }
