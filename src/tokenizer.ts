@@ -1,3 +1,4 @@
+import { withDownloadDeadline, DownloadOptions } from './download';
 // Copyright (c) 2024-2026 Soumya Debnath. All Rights Reserved.
 // Licensed under the Business Source License 1.1 (BSL 1.1).
 // See LICENSE file for details. Production use requires a paid license.
@@ -5,6 +6,8 @@
 
 export interface TokenizerConfig {
   vocab: Record<string, number>;
+  /** Keep the legacy uncased default; set false for cased WordPiece vocabularies. */
+  lowercase?: boolean;
   /**
    * BPE merge rules, either `"a b"` (older HuggingFace tokenizer.json) or
    * `["a", "b"]` (newer tokenizer.json). Accepted and normalised, but note
@@ -31,6 +34,7 @@ export interface EncodingResult {
  * and decoding token IDs back to text.
  */
 export class Tokenizer {
+  private lowercase: boolean;
   private vocab: Map<string, number>;
   private inverseVocab: Map<number, string>;
   private merges: Array<[string, string]>;
@@ -43,6 +47,7 @@ export class Tokenizer {
   private bpeCache: Map<string, string[]>;
 
   constructor(config: TokenizerConfig) {
+    this.lowercase = config.lowercase ?? true;
     this.vocab = new Map(Object.entries(config.vocab));
     this.inverseVocab = new Map<number, string>();
     for (const [token, id] of this.vocab) {
@@ -74,10 +79,15 @@ export class Tokenizer {
   /**
    * Load tokenizer configuration from a JSON URL (tokenizer.json or vocab.json).
    */
-  static async fromUrl(url: string): Promise<Tokenizer> {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`Failed to load tokenizer from ${url}: ${response.status}`);
-    const config = await response.json();
+  static async fromUrl(url: string, options: DownloadOptions = {}): Promise<Tokenizer> {
+    const config = await withDownloadDeadline(async signal => {
+      const response = await fetch(url, { signal });
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new Error(`Failed to load tokenizer from ${url}: ${response.status}`);
+      }
+      return response.json();
+    }, options);
 
     // Handle HuggingFace tokenizer.json format
     if (config.model && config.model.vocab) {
@@ -89,6 +99,7 @@ export class Tokenizer {
       }
       return new Tokenizer({
         vocab: config.model.vocab,
+        lowercase: Tokenizer.normalizerLowercase(config.normalizer),
         merges: config.model.merges || [],
         specialTokens,
         maxLength: config.truncation?.max_length || 512,
@@ -101,6 +112,21 @@ export class Tokenizer {
 
     // Handle simple vocab.json format (key -> id mapping)
     return new Tokenizer({ vocab: config });
+  }
+
+  private static normalizerLowercase(normalizer: unknown): boolean {
+    if (normalizer === undefined) return true; // Legacy default for omitted config.
+    if (normalizer === null) return false; // Explicit identity normalizer.
+    if (typeof normalizer !== 'object') throw new Error('Unsupported tokenizer normalizer');
+    const value = normalizer as Record<string, unknown>;
+    if (value.type === 'Lowercase') return true;
+    // Other normalization (accent stripping, CJK spacing, Unicode normalization)
+    // is not implemented. Reject it instead of silently changing token IDs.
+    if (value.type === 'BertNormalizer' && typeof value.lowercase === 'boolean'
+      && value.strip_accents === false && value.clean_text === false && value.handle_chinese_chars === false) {
+      return value.lowercase;
+    }
+    throw new Error('Unsupported tokenizer normalizer; only identity, Lowercase, or casing-only BertNormalizer is supported');
   }
 
   /**
@@ -198,7 +224,7 @@ export class Tokenizer {
    * Pre-tokenize text: lowercase, split on whitespace and punctuation boundaries.
    */
   private preTokenize(text: string): string[] {
-    const normalized = text.toLowerCase().trim();
+    const normalized = (this.lowercase ? text.toLowerCase() : text).trim();
     if (!normalized) return [];
     
     // Split on whitespace and keep punctuation as separate tokens

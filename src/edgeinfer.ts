@@ -6,12 +6,13 @@
 import { LicenseValidator } from './license-validator';
 import * as ort from 'onnxruntime-web';
 import { ModelCache } from './model-cache';
+import { DownloadOptions } from './download';
 import { RuntimeManager, GPUCapabilities } from './runtime-manager';
 import { ModelOptions, ClassificationResult, Detection } from './types';
 import { Tokenizer, TokenizerConfig, EncodingResult } from './tokenizer';
 import { ImageProcessor } from './image-processor';
 
-export interface EdgeInferOptions extends ModelOptions {
+export interface EdgeInferOptions extends ModelOptions, DownloadOptions {
   licenseKey?: string;
   tokenizerUrl?: string;
   tokenizerConfig?: TokenizerConfig;
@@ -56,7 +57,7 @@ export class EdgeInfer {
     }
 
     const cache = new ModelCache(options?.cacheName);
-    const buffer = await cache.getModel(modelUrl, options?.forceDownload);
+    const buffer = await cache.getModel(modelUrl, options?.forceDownload, options);
     return EdgeInfer.fromBuffer(buffer, options);
   }
 
@@ -66,20 +67,28 @@ export class EdgeInfer {
   static async fromBuffer(buffer: ArrayBuffer, options?: EdgeInferOptions): Promise<EdgeInfer> {
     // `provider` is the provider that actually created the session, which is
     // not necessarily the detected preference — see RuntimeManager.createSession.
+    options?.signal?.throwIfAborted();
     const { session, provider } = await RuntimeManager.createSession(
       buffer,
       options?.executionProviders
     );
 
-    // Load tokenizer if URL provided
-    let tokenizer: Tokenizer | undefined;
-    if (options?.tokenizerUrl) {
-      tokenizer = await Tokenizer.fromUrl(options.tokenizerUrl);
-    } else if (options?.tokenizerConfig) {
-      tokenizer = new Tokenizer(options.tokenizerConfig);
-    }
+    try {
+      options?.signal?.throwIfAborted();
+      // Load tokenizer if URL provided
+      let tokenizer: Tokenizer | undefined;
+      if (options?.tokenizerUrl) {
+        tokenizer = await Tokenizer.fromUrl(options.tokenizerUrl, options);
+      } else if (options?.tokenizerConfig) {
+        tokenizer = new Tokenizer(options.tokenizerConfig);
+      }
 
-    return new EdgeInfer(session, buffer.byteLength, provider, tokenizer);
+      options?.signal?.throwIfAborted();
+      return new EdgeInfer(session, buffer.byteLength, provider, tokenizer);
+    } catch (error) {
+      try { await session.release(); } catch { /* Preserve the original load failure. */ }
+      throw error;
+    }
   }
 
   /**

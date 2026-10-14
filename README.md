@@ -229,3 +229,23 @@ Constructor takes `{ vocab, merges?, specialTokens?, maxLength?, padTokenId?, un
 
 Contributions are accepted under AGPL-3.0-or-later. Full terms: [LICENSING.md](LICENSING.md).
 
+
+### Bounded downloads and tokenizer casing
+
+`EdgeInfer.load(url, { signal, downloadTimeoutMs })` passes cancellation and a
+per-transfer deadline to model and tokenizer downloads. `ModelCache.getModel`
+accepts these options as its third argument and `Tokenizer.fromUrl` as its second.
+The default is 120,000 ms per transfer, including response headers and the full
+body. Use a finite positive value no larger than 2,147,483,647 ms. This is not an
+inference/session-creation timeout. A tokenizer failure or cancellation after
+session creation releases the session. Browser Cache API operations cannot be
+physically cancelled, but callers still receive cancellation and no partial
+network body is committed; an already-started complete cache write may finish.
+
+WordPiece tokenization remains lowercase by default. Set `lowercase: false` in
+`TokenizerConfig` to preserve case. Loaded HuggingFace JSON supports an explicit
+null normalizer (identity), `Lowercase`, or a `BertNormalizer` with explicit
+`lowercase` and all of `strip_accents`, `clean_text`, `handle_chinese_chars` false.
+Other normalizers are rejected, not silently approximated. Omitted normalizers
+retain the legacy lowercase default. This does not implement BPE, accent stripping,
+Unicode normalization, or full HuggingFace tokenizer compatibility.

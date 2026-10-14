@@ -14,37 +14,64 @@ var EventEmitter = class {
   }
 };
 
+// src/download.ts
+async function withDownloadDeadline(operation, options = {}) {
+  const timeout = options.downloadTimeoutMs ?? 12e4;
+  if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 2147483647) {
+    throw new RangeError("downloadTimeoutMs must be between 0 and 2147483647 milliseconds");
+  }
+  const controller = new AbortController();
+  const abort = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted) abort();
+  else options.signal?.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(() => controller.abort(new DOMException("Download deadline exceeded", "TimeoutError")), timeout);
+  let onAbort = () => {
+  };
+  try {
+    controller.signal.throwIfAborted();
+    const cancelled = new Promise((_, reject) => {
+      onAbort = () => reject(controller.signal.reason);
+      controller.signal.addEventListener("abort", onAbort, { once: true });
+    });
+    return await Promise.race([operation(controller.signal), cancelled]);
+  } finally {
+    clearTimeout(timer);
+    controller.signal.removeEventListener("abort", onAbort);
+    options.signal?.removeEventListener("abort", abort);
+  }
+}
+
 // src/model-cache.ts
 var ModelCache = class extends EventEmitter {
   constructor(cacheName = "edgeinfer-models") {
     super();
     this.cacheName = cacheName;
   }
-  async getModel(url, forceDownload = false) {
-    if (typeof caches === "undefined") {
-      const response2 = await fetch(url);
-      if (!response2.ok) {
-        throw new Error(
-          `EdgeInfer: failed to fetch model from ${url} - HTTP ${response2.status} ${response2.statusText}`
-        );
+  async getModel(url, forceDownload = false, options = {}) {
+    return withDownloadDeadline(async (signal) => {
+      const cache = typeof caches === "undefined" ? void 0 : await caches.open(this.cacheName);
+      signal.throwIfAborted();
+      const cached = !forceDownload && cache ? await cache.match(url) : void 0;
+      signal.throwIfAborted();
+      if (cached) {
+        const buffer2 = await cached.arrayBuffer();
+        signal.throwIfAborted();
+        return buffer2;
       }
-      return response2.arrayBuffer();
-    }
-    const cache = await caches.open(this.cacheName);
-    const cachedResponse = await cache.match(url);
-    if (cachedResponse && !forceDownload) {
-      return cachedResponse.arrayBuffer();
-    }
-    this.emit("downloadStart", url);
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(
-        `EdgeInfer: failed to fetch model from ${url} - HTTP ${response.status} ${response.statusText}`
-      );
-    }
-    await cache.put(url, response.clone());
-    this.emit("downloadComplete", url);
-    return response.arrayBuffer();
+      this.emit("downloadStart", url);
+      signal.throwIfAborted();
+      const response = await fetch(url, { signal });
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new Error(`EdgeInfer: failed to fetch model from ${url} - HTTP ${response.status} ${response.statusText}`);
+      }
+      const buffer = await response.arrayBuffer();
+      signal.throwIfAborted();
+      if (cache) await cache.put(url, new Response(buffer, { headers: response.headers }));
+      signal.throwIfAborted();
+      this.emit("downloadComplete", url);
+      return buffer;
+    }, options);
   }
 };
 
@@ -187,6 +214,7 @@ var RuntimeManager = _RuntimeManager;
 // src/tokenizer.ts
 var Tokenizer = class _Tokenizer {
   constructor(config) {
+    this.lowercase = config.lowercase ?? true;
     this.vocab = new Map(Object.entries(config.vocab));
     this.inverseVocab = /* @__PURE__ */ new Map();
     for (const [token, id] of this.vocab) {
@@ -210,10 +238,15 @@ var Tokenizer = class _Tokenizer {
   /**
    * Load tokenizer configuration from a JSON URL (tokenizer.json or vocab.json).
    */
-  static async fromUrl(url) {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`Failed to load tokenizer from ${url}: ${response.status}`);
-    const config = await response.json();
+  static async fromUrl(url, options = {}) {
+    const config = await withDownloadDeadline(async (signal) => {
+      const response = await fetch(url, { signal });
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new Error(`Failed to load tokenizer from ${url}: ${response.status}`);
+      }
+      return response.json();
+    }, options);
     if (config.model && config.model.vocab) {
       const specialTokens = {};
       if (config.added_tokens) {
@@ -223,6 +256,7 @@ var Tokenizer = class _Tokenizer {
       }
       return new _Tokenizer({
         vocab: config.model.vocab,
+        lowercase: _Tokenizer.normalizerLowercase(config.normalizer),
         merges: config.model.merges || [],
         specialTokens,
         maxLength: config.truncation?.max_length || 512,
@@ -233,6 +267,17 @@ var Tokenizer = class _Tokenizer {
       });
     }
     return new _Tokenizer({ vocab: config });
+  }
+  static normalizerLowercase(normalizer) {
+    if (normalizer === void 0) return true;
+    if (normalizer === null) return false;
+    if (typeof normalizer !== "object") throw new Error("Unsupported tokenizer normalizer");
+    const value = normalizer;
+    if (value.type === "Lowercase") return true;
+    if (value.type === "BertNormalizer" && typeof value.lowercase === "boolean" && value.strip_accents === false && value.clean_text === false && value.handle_chinese_chars === false) {
+      return value.lowercase;
+    }
+    throw new Error("Unsupported tokenizer normalizer; only identity, Lowercase, or casing-only BertNormalizer is supported");
   }
   /**
    * Encode text into token IDs with attention mask.
@@ -307,7 +352,7 @@ var Tokenizer = class _Tokenizer {
    * Pre-tokenize text: lowercase, split on whitespace and punctuation boundaries.
    */
   preTokenize(text) {
-    const normalized = text.toLowerCase().trim();
+    const normalized = (this.lowercase ? text.toLowerCase() : text).trim();
     if (!normalized) return [];
     const tokens = [];
     let current = "";
@@ -478,24 +523,35 @@ var EdgeInfer = class _EdgeInfer {
       LicenseValidator.validate(options);
     }
     const cache = new ModelCache(options?.cacheName);
-    const buffer = await cache.getModel(modelUrl, options?.forceDownload);
+    const buffer = await cache.getModel(modelUrl, options?.forceDownload, options);
     return _EdgeInfer.fromBuffer(buffer, options);
   }
   /**
    * Create an EdgeInfer instance from a pre-loaded model buffer.
    */
   static async fromBuffer(buffer, options) {
+    options?.signal?.throwIfAborted();
     const { session, provider } = await RuntimeManager.createSession(
       buffer,
       options?.executionProviders
     );
-    let tokenizer;
-    if (options?.tokenizerUrl) {
-      tokenizer = await Tokenizer.fromUrl(options.tokenizerUrl);
-    } else if (options?.tokenizerConfig) {
-      tokenizer = new Tokenizer(options.tokenizerConfig);
+    try {
+      options?.signal?.throwIfAborted();
+      let tokenizer;
+      if (options?.tokenizerUrl) {
+        tokenizer = await Tokenizer.fromUrl(options.tokenizerUrl, options);
+      } else if (options?.tokenizerConfig) {
+        tokenizer = new Tokenizer(options.tokenizerConfig);
+      }
+      options?.signal?.throwIfAborted();
+      return new _EdgeInfer(session, buffer.byteLength, provider, tokenizer);
+    } catch (error) {
+      try {
+        await session.release();
+      } catch {
+      }
+      throw error;
     }
-    return new _EdgeInfer(session, buffer.byteLength, provider, tokenizer);
   }
   /**
    * Set or replace the tokenizer after model load.
