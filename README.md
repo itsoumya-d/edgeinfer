@@ -67,6 +67,17 @@ Then import from `./dist/index.mjs` or `./dist/index.js`.
 
 ---
 
+## Release process
+
+The package metadata is npm-ready (`exports`, `publishConfig.provenance`, `pack:check`). Publishing is tag-driven and requires the repository secret `NPM_TOKEN` with publish rights:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+`.github/workflows/release.yml` verifies that the tag matches `package.json`, runs typecheck, tests, build and `npm pack --dry-run`, publishes with npm provenance, and creates a GitHub release. The package remains **pre-release and unpublished** until that workflow is run with a valid token; no npm publication has been performed yet.
+
 ## Quick Start
 
 ```typescript
