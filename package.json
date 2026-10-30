@@ -5,6 +5,14 @@
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
   "sideEffects": false,
   "files": [
     "dist",
@@ -12,10 +20,18 @@
     "LICENSE",
     "README.md"
   ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.mjs",
+    "pack:check": "npm pack --dry-run",
     "prepublishOnly": "npm run build"
   },
   "repository": {
