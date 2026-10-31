@@ -39,7 +39,7 @@ Real exported symbols: `EdgeInfer`, `EventEmitter`, `ImageProcessor`, `ModelCach
 
 ## Installation
 
-EdgeInfer is **not published on npm**. `npm install edgeinfer` will fail. Install from source:
+EdgeInfer is **not yet installable from npm**. The `edgeinfer` name currently resolves to a `0.0.0-stage` placeholder owned by this account. A 2.0.0 publish was submitted on 2026-10-31 and is awaiting npm staged-release review. Install from source in the meantime:
 
 > **EdgeInfer requires `onnxruntime-web` at runtime.** It is a real dependency, not
 > bundled: `dist/index.mjs` contains `import * as ort from "onnxruntime-web"`. Because
