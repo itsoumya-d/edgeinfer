@@ -343,4 +343,187 @@ declare class EdgeInfer {
     private l2Normalize;
 }
 
-export { type ClassificationResult, type Detection, type DownloadOptions, EdgeInfer, type EdgeInferOptions, type EncodingResult, EventEmitter, type GPUCapabilities, type GenerateOptions, type GenerationResult, ImageProcessor, ModelCache, type ModelOptions, RuntimeManager, Tokenizer, type TokenizerConfig };
+interface VectorRecord {
+    id: string;
+    text?: string;
+    embedding: Float32Array;
+    metadata?: Record<string, unknown>;
+}
+interface SearchResult {
+    id: string;
+    text?: string;
+    metadata?: Record<string, unknown>;
+    score: number;
+    coarseScore: number;
+}
+interface VectorStore {
+    add(records: VectorRecord[]): Promise<void>;
+    getAll(): Promise<VectorRecord[]>;
+    clear(): Promise<void>;
+    count(): Promise<number>;
+    close?(): void;
+}
+interface MatryoshkaOptions {
+    dimensions?: number;
+    coarseDimension?: number;
+    refineTopK?: number;
+    store?: VectorStore;
+}
+interface SearchOptions {
+    topK?: number;
+    refineTopK?: number;
+    coarseDimension?: number;
+    refine?: boolean;
+}
+declare function l2Normalize(vector: Float32Array, dimension?: number): Float32Array;
+declare function truncateAndNormalize(vector: Float32Array, dimension: number): Float32Array;
+declare function quantizeInt8(vector: Float32Array, dimension?: number): {
+    data: Int8Array;
+    scale: number;
+};
+declare function dequantizeInt8(data: Int8Array, scale: number): Float32Array;
+declare class MemoryVectorStore implements VectorStore {
+    private records;
+    add(records: VectorRecord[]): Promise<void>;
+    getAll(): Promise<VectorRecord[]>;
+    clear(): Promise<void>;
+    count(): Promise<number>;
+}
+declare class IndexedDbVectorStore implements VectorStore {
+    private readonly dbName;
+    private readonly storeName;
+    private dbPromise;
+    constructor(dbName?: string, storeName?: string);
+    private open;
+    add(records: VectorRecord[]): Promise<void>;
+    getAll(): Promise<VectorRecord[]>;
+    clear(): Promise<void>;
+    count(): Promise<number>;
+    close(): void;
+}
+declare class MatryoshkaIndex {
+    readonly dimensions: number;
+    readonly coarseDimension: number;
+    readonly refineTopK: number;
+    private store?;
+    private ids;
+    private texts;
+    private metadata;
+    private full;
+    private coarse;
+    private scales;
+    private size;
+    constructor(options?: MatryoshkaOptions);
+    get count(): number;
+    build(records: VectorRecord[], { persist }?: {
+        persist?: boolean | undefined;
+    }): Promise<void>;
+    static load(store: VectorStore, options?: MatryoshkaOptions): Promise<MatryoshkaIndex>;
+    search(query: Float32Array, options?: SearchOptions): SearchResult[];
+    exactSearchAtDimension(query: Float32Array, dimension: number, topK?: number): Array<{
+        index: number;
+        score: number;
+    }>;
+    recallAtK(queries: Float32Array[], groundTruth: string[][], dimension: number, topK?: number): number;
+    get idList(): readonly string[];
+}
+type EmbedFn = (text: string) => Promise<Float32Array> | Float32Array;
+declare function embedMatryoshka(text: string, dimension: number, embed: EmbedFn): Promise<Float32Array>;
+declare function createMatryoshkaEmbedder(embed: EmbedFn): (text: string, dimension?: number) => Promise<Float32Array<ArrayBufferLike>>;
+
+interface ModelState {
+    tokens: number[];
+    /** Opaque KV-cache handle for cache-aware adapters. */
+    cache?: unknown;
+}
+interface DecodeResult {
+    state: ModelState;
+    /**
+     * One next-token distribution for each input position, plus one distribution
+     * after the last input token. Length = tokens.length + 1. Calling decode()
+     * with an empty token array returns the distribution after the current state.
+     */
+    logits: Float32Array[];
+}
+interface LanguageModel {
+    readonly vocabSize: number;
+    prefill(tokens: number[]): Promise<ModelState>;
+    decode(state: ModelState, tokens: number[]): Promise<DecodeResult>;
+    /**
+     * Drop cache entries after `length` total tokens. Cache-aware adapters must
+     * implement this; stateless models can just slice the token list.
+     */
+    truncate(state: ModelState, length: number): ModelState;
+}
+interface SpeculativeOptions {
+    draft: LanguageModel;
+    target: LanguageModel;
+    gamma?: number;
+    rng?: () => number;
+    eosTokenId?: number;
+}
+interface SpeculativeStats {
+    outputTokens: number;
+    draftTokens: number;
+    acceptedTokens: number;
+    bonusTokens: number;
+    rejectedTokens: number;
+    targetCalls: number;
+    draftCalls: number;
+    acceptanceRate: number;
+    targetCallsPerToken: number;
+    elapsedMs: number;
+    tokensPerSecond: number;
+}
+interface SpeculativeGenerationResult {
+    tokens: number[];
+    stats: SpeculativeStats;
+}
+declare class SpeculativeDecoder {
+    readonly draft: LanguageModel;
+    readonly target: LanguageModel;
+    readonly gamma: number;
+    private readonly rng;
+    private readonly eosTokenId?;
+    constructor(options: SpeculativeOptions);
+    generate(prompt: number[], maxNewTokens?: number, { temperature }?: {
+        temperature?: number;
+    }): Promise<SpeculativeGenerationResult>;
+    private draftBatch;
+}
+declare function softmax(logits: Float32Array, temperature?: number): Float32Array;
+declare function probability(logits: Float32Array, token: number, temperature?: number): number;
+declare function sample(distribution: Float32Array, random: number): number;
+declare function residualDistribution(targetLogits: Float32Array, draftProbabilities: Float32Array, temperature?: number): Float32Array;
+type LogitPolicy = (tokens: number[]) => Float32Array;
+/** Deterministic mock used by tests and the throughput benchmark. */
+declare class MockLanguageModel implements LanguageModel {
+    private readonly policy;
+    readonly vocabSize: number;
+    private readonly latencyMs;
+    constructor(policy: LogitPolicy, vocabSize: number, latencyMs?: number);
+    prefill(tokens: number[]): Promise<ModelState>;
+    decode(state: ModelState, tokens: number[]): Promise<DecodeResult>;
+    truncate(state: ModelState, length: number): ModelState;
+}
+
+interface OnnxCausalOptions {
+    inputIdsName?: string;
+    attentionMaskName?: string;
+    positionIdsName?: string;
+    logitsName?: string;
+}
+declare class OnnxCausalLM implements LanguageModel {
+    private readonly session;
+    readonly vocabSize: number;
+    private readonly inputIdsName;
+    private readonly attentionMaskName;
+    private readonly positionIdsName?;
+    private readonly logitsName;
+    constructor(session: ort.InferenceSession, vocabSize: number, options?: OnnxCausalOptions);
+    prefill(tokens: number[]): Promise<ModelState>;
+    decode(state: ModelState, tokens: number[]): Promise<DecodeResult>;
+    truncate(state: ModelState, length: number): ModelState;
+}
+
+export { type ClassificationResult, type DecodeResult, type Detection, type DownloadOptions, EdgeInfer, type EdgeInferOptions, type EmbedFn, type EncodingResult, EventEmitter, type GPUCapabilities, type GenerateOptions, type GenerationResult, ImageProcessor, IndexedDbVectorStore, type LanguageModel, type LogitPolicy, MatryoshkaIndex, type MatryoshkaOptions, MemoryVectorStore, MockLanguageModel, ModelCache, type ModelOptions, type ModelState, OnnxCausalLM, type OnnxCausalOptions, RuntimeManager, type SearchOptions, type SearchResult, SpeculativeDecoder, type SpeculativeGenerationResult, type SpeculativeOptions, type SpeculativeStats, Tokenizer, type TokenizerConfig, type VectorRecord, type VectorStore, createMatryoshkaEmbedder, dequantizeInt8, embedMatryoshka, l2Normalize, probability, quantizeInt8, residualDistribution, sample, softmax, truncateAndNormalize };

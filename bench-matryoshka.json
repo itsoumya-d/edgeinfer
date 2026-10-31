@@ -1,0 +1,23 @@
+{
+  "corpus": {
+    "documents": 100000,
+    "dimensions": 768,
+    "clusters": 128
+  },
+  "build_ms": 1763.99,
+  "coarse_scan": {
+    "queries": 20,
+    "p50_ms": 25.08,
+    "p95_ms": 59.41,
+    "queries_per_second": 33.6,
+    "top10_hit_rate": 0.9
+  },
+  "recall_at_10_by_dimension": {
+    "64": 0.725,
+    "128": 0.75,
+    "256": 0.7625,
+    "512": 0.8375,
+    "768": 1
+  },
+  "note": "Synthetic vectors and synthetic queries; not MTEB."
+}

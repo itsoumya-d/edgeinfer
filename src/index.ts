@@ -10,3 +10,6 @@ export * from './image-processor';
 export * from './edgeinfer';
 
 export type { DownloadOptions } from './download';
+export * from './matryoshka';
+export * from './speculative';
+export * from './onnx-lm';

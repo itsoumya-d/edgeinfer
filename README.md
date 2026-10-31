@@ -26,6 +26,17 @@ Real exported symbols: `EdgeInfer`, `EventEmitter`, `ImageProcessor`, `ModelCach
 
 ---
 
+## What's new in v2
+
+- **Two-stage Matryoshka retrieval** with an INT8 coarse scan (`d=64`) and FP32
+  re-ranking (`d=768`), persisted in IndexedDB or an in-memory store.
+- **Speculative decoding** with `gamma=5` draft tokens verified in one target
+  forward pass, residual resampling on rejection, and cache-aware state
+  truncation.
+- **ONNX Runtime Web causal-LM adapter** (`OnnxCausalLM`) for standard
+  `input_ids`/`attention_mask` exports.
+- MIT licensed, no license key, 95 tests.
+
 ## Installation
 
 EdgeInfer is **not published on npm**. `npm install edgeinfer` will fail. Install from source:
@@ -70,8 +81,8 @@ Then import from `./dist/index.mjs` or `./dist/index.js`.
 The package metadata is npm-ready (`exports`, `publishConfig.provenance`, `pack:check`). Publishing is tag-driven and requires the repository secret `NPM_TOKEN` with publish rights:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v2.0.0
+git push origin v2.0.0
 ```
 
 `.github/workflows/release.yml` verifies that the tag matches `package.json`, runs typecheck, tests, build and `npm pack --dry-run`, publishes with npm provenance, and creates a GitHub release. The package remains **pre-release and unpublished** until that workflow is run with a valid token; no npm publication has been performed yet.
@@ -211,6 +222,54 @@ session).
 `static imageDataToFloat32Array(imageData, options?)` converts an RGBA `ImageData`-like object to a CHW `Float32Array` in `[0,1]` range. Works in Node with a mock `ImageData` struct `{ data: Uint8ClampedArray, width, height }`.
 
 ---
+
+## Browser-local retrieval and decoding
+
+### Matryoshka hybrid RAG
+
+`MatryoshkaIndex` stores full FP32 unit vectors and a truncated INT8 view. A
+query scans every chunk at 64 dimensions, then re-scores the top 50 candidates
+at 768 dimensions. Vectors can be persisted in IndexedDB:
+
+```ts
+import { MatryoshkaIndex, IndexedDbVectorStore } from 'edgeinfer';
+
+const store = new IndexedDbVectorStore();
+const index = new MatryoshkaIndex({ dimensions: 768, coarseDimension: 64, store });
+await index.build(records); // records: { id, text, embedding: Float32Array(768) }[]
+
+const results = index.search(queryEmbedding, { topK: 10 });
+```
+
+For a text query, wrap any embedding function:
+
+```ts
+import { createMatryoshkaEmbedder } from 'edgeinfer';
+const embed = createMatryoshkaEmbedder((text) => engine.embed(text));
+const query64 = await embed('refund policy', 64);
+```
+
+Synthetic benchmark on an Apple Silicon laptop (Node 26, 100,000 chunks at 768
+dimensions): build 1.76 s; coarse scan + re-rank p50 25.1 ms / p95 59.4 ms;
+top-10 hit rate 0.90; Recall@10 rises from 0.725 at `d=64` to 1.000 at `d=768`.
+This is a synthetic workload, not an MTEB evaluation. Reproduce with
+`npm run bench:matryoshka`.
+
+### Speculative decoding
+
+`SpeculativeDecoder` samples `gamma` tokens from a draft `LanguageModel`, asks
+the target for one forward pass over those tokens, accepts each token with
+probability `min(1, p_target/q_draft)`, resamples from the residual
+`max(0, p_target - q_draft)` on rejection, and truncates both model states.
+`MockLanguageModel` is included for tests and throughput analysis. `OnnxCausalLM`
+adapts a standard causal-LM ONNX session; it recomputes the full sequence per
+call, so a cache-aware adapter can implement `LanguageModel.truncate` for KV
+caching without changing the decoder.
+
+Mock benchmark (`gamma=5`, draft 0.2 ms/forward, target 2.0 ms/forward):
+68.4% acceptance, 0.45 target calls per generated token, and a modeled 1.64x
+speedup over target-only decoding. This is an analytical mock result, not a
+WebGPU measurement. Reproduce with `npm run bench:speculative`.
 
 ## Performance
 

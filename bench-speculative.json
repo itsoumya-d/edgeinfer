@@ -1,0 +1,30 @@
+{
+  "model": {
+    "draft": "mock-135m-shape",
+    "target": "mock-1.5b-shape",
+    "vocab": 32
+  },
+  "latency_ms": {
+    "draft_forward": 0.2,
+    "target_forward": 2
+  },
+  "gamma": 5,
+  "tokens": 100,
+  "speculative": {
+    "outputTokens": 100,
+    "draftTokens": 114,
+    "acceptedTokens": 78,
+    "bonusTokens": 11,
+    "rejectedTokens": 11,
+    "targetCalls": 45,
+    "draftCalls": 159,
+    "acceptanceRate": 0.6842105263157895,
+    "targetCallsPerToken": 0.45,
+    "elapsedMs": 3.1622079999999926,
+    "tokensPerSecond": 31623.473218713072
+  },
+  "modeled_speculative_ms": 121.8,
+  "target_only_estimate_ms": 200,
+  "speedup_vs_target_only": 1.64,
+  "note": "Analytical speedup from call counts and configured mock forward latencies; not a WebGPU measurement."
+}

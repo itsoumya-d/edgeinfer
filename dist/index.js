@@ -33,9 +33,25 @@ __export(index_exports, {
   EdgeInfer: () => EdgeInfer,
   EventEmitter: () => EventEmitter,
   ImageProcessor: () => ImageProcessor,
+  IndexedDbVectorStore: () => IndexedDbVectorStore,
+  MatryoshkaIndex: () => MatryoshkaIndex,
+  MemoryVectorStore: () => MemoryVectorStore,
+  MockLanguageModel: () => MockLanguageModel,
   ModelCache: () => ModelCache,
+  OnnxCausalLM: () => OnnxCausalLM,
   RuntimeManager: () => RuntimeManager,
-  Tokenizer: () => Tokenizer
+  SpeculativeDecoder: () => SpeculativeDecoder,
+  Tokenizer: () => Tokenizer,
+  createMatryoshkaEmbedder: () => createMatryoshkaEmbedder,
+  dequantizeInt8: () => dequantizeInt8,
+  embedMatryoshka: () => embedMatryoshka,
+  l2Normalize: () => l2Normalize,
+  probability: () => probability,
+  quantizeInt8: () => quantizeInt8,
+  residualDistribution: () => residualDistribution,
+  sample: () => sample,
+  softmax: () => softmax,
+  truncateAndNormalize: () => truncateAndNormalize
 });
 module.exports = __toCommonJS(index_exports);
 
@@ -796,10 +812,10 @@ var EdgeInfer = class _EdgeInfer {
       candidates.length = topK;
       sum = candidates.reduce((acc, c) => acc + c.prob, 0);
     }
-    let sample = Math.random() * sum;
+    let sample2 = Math.random() * sum;
     for (const candidate of candidates) {
-      sample -= candidate.prob;
-      if (sample <= 0) return candidate.id;
+      sample2 -= candidate.prob;
+      if (sample2 <= 0) return candidate.id;
     }
     return candidates[candidates.length - 1].id;
   }
@@ -1016,13 +1032,621 @@ var EdgeInfer = class _EdgeInfer {
     return result;
   }
 };
+
+// src/matryoshka.ts
+function l2Normalize(vector, dimension = vector.length) {
+  const output = new Float32Array(dimension);
+  if (dimension > vector.length) {
+    throw new Error(`Cannot normalize ${dimension} dims from a ${vector.length}-dim vector`);
+  }
+  let norm = 0;
+  for (let i = 0; i < dimension; i++) norm += vector[i] * vector[i];
+  norm = Math.sqrt(norm);
+  if (norm === 0) return output;
+  for (let i = 0; i < dimension; i++) output[i] = vector[i] / norm;
+  return output;
+}
+function truncateAndNormalize(vector, dimension) {
+  if (!Number.isInteger(dimension) || dimension < 1) {
+    throw new Error("dimension must be a positive integer");
+  }
+  return l2Normalize(vector, dimension);
+}
+function quantizeInt8(vector, dimension = vector.length) {
+  let maxAbs = 0;
+  for (let i = 0; i < dimension; i++) {
+    const value = Math.abs(vector[i]);
+    if (value > maxAbs) maxAbs = value;
+  }
+  const scale = maxAbs > 0 ? maxAbs / 127 : 1;
+  const data = new Int8Array(dimension);
+  for (let i = 0; i < dimension; i++) {
+    const value = Math.round(vector[i] / scale);
+    data[i] = value > 127 ? 127 : value < -127 ? -127 : value;
+  }
+  return { data, scale };
+}
+function dequantizeInt8(data, scale) {
+  const output = new Float32Array(data.length);
+  for (let i = 0; i < data.length; i++) output[i] = data[i] * scale;
+  return output;
+}
+function dot(a, b, dimension) {
+  let sum = 0;
+  for (let i = 0; i < dimension; i++) sum += a[i] * b[i];
+  return sum;
+}
+var TopKHeap = class {
+  constructor(k) {
+    this.k = k;
+    this.items = [];
+    if (k < 1) throw new Error("top-k must be positive");
+  }
+  push(index, score) {
+    if (this.items.length < this.k) {
+      this.items.push({ index, score });
+      if (this.items.length === this.k) this.heapify();
+      return;
+    }
+    if (score > this.items[0].score) {
+      this.items[0] = { index, score };
+      this.siftDown(0);
+    }
+  }
+  heapify() {
+    for (let i = Math.floor(this.items.length / 2) - 1; i >= 0; i--) this.siftDown(i);
+  }
+  siftDown(start) {
+    let index = start;
+    const length = this.items.length;
+    for (; ; ) {
+      const left = index * 2 + 1;
+      const right = left + 1;
+      let smallest = index;
+      if (left < length && this.items[left].score < this.items[smallest].score) smallest = left;
+      if (right < length && this.items[right].score < this.items[smallest].score) smallest = right;
+      if (smallest === index) break;
+      [this.items[index], this.items[smallest]] = [this.items[smallest], this.items[index]];
+      index = smallest;
+    }
+  }
+  values() {
+    return [...this.items].sort((a, b) => b.score - a.score);
+  }
+};
+var MemoryVectorStore = class {
+  constructor() {
+    this.records = [];
+  }
+  async add(records) {
+    this.records.push(...records);
+  }
+  async getAll() {
+    return this.records.slice();
+  }
+  async clear() {
+    this.records = [];
+  }
+  async count() {
+    return this.records.length;
+  }
+};
+var IndexedDbVectorStore = class {
+  constructor(dbName = "edgeinfer-matryoshka", storeName = "vectors") {
+    this.dbName = dbName;
+    this.storeName = storeName;
+    this.dbPromise = null;
+  }
+  open() {
+    if (this.dbPromise) return this.dbPromise;
+    if (typeof indexedDB === "undefined") {
+      return Promise.reject(new Error("IndexedDB is unavailable in this environment"));
+    }
+    this.dbPromise = new Promise((resolve, reject) => {
+      const request = indexedDB.open(this.dbName, 1);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(this.storeName)) {
+          db.createObjectStore(this.storeName, { keyPath: "id" });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error ?? new Error("IndexedDB open failed"));
+    });
+    return this.dbPromise;
+  }
+  async add(records) {
+    const db = await this.open();
+    await new Promise((resolve, reject) => {
+      const transaction = db.transaction(this.storeName, "readwrite");
+      const store = transaction.objectStore(this.storeName);
+      for (const record of records) {
+        const stored = {
+          id: record.id,
+          text: record.text,
+          metadata: record.metadata,
+          embedding: record.embedding.slice().buffer
+        };
+        store.put(stored);
+      }
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error ?? new Error("IndexedDB write failed"));
+      transaction.onabort = () => reject(transaction.error ?? new Error("IndexedDB write aborted"));
+    });
+  }
+  async getAll() {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(this.storeName, "readonly");
+      const store = transaction.objectStore(this.storeName);
+      const request = store.getAll();
+      request.onsuccess = () => {
+        const records = request.result.map((stored) => ({
+          id: stored.id,
+          text: stored.text,
+          metadata: stored.metadata,
+          embedding: new Float32Array(stored.embedding)
+        }));
+        resolve(records);
+      };
+      request.onerror = () => reject(request.error ?? new Error("IndexedDB read failed"));
+    });
+  }
+  async clear() {
+    const db = await this.open();
+    await new Promise((resolve, reject) => {
+      const transaction = db.transaction(this.storeName, "readwrite");
+      transaction.objectStore(this.storeName).clear();
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error ?? new Error("IndexedDB clear failed"));
+    });
+  }
+  async count() {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(this.storeName, "readonly");
+      const request = transaction.objectStore(this.storeName).count();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error ?? new Error("IndexedDB count failed"));
+    });
+  }
+  close() {
+    void this.dbPromise?.then((db) => db.close());
+    this.dbPromise = null;
+  }
+};
+var MatryoshkaIndex = class _MatryoshkaIndex {
+  constructor(options = {}) {
+    this.ids = [];
+    this.texts = [];
+    this.metadata = [];
+    this.full = new Float32Array(0);
+    this.coarse = new Int8Array(0);
+    this.scales = new Float32Array(0);
+    this.size = 0;
+    this.dimensions = options.dimensions ?? 768;
+    this.coarseDimension = options.coarseDimension ?? 64;
+    this.refineTopK = options.refineTopK ?? 50;
+    this.store = options.store;
+    if (this.coarseDimension > this.dimensions) {
+      throw new Error("coarseDimension cannot exceed dimensions");
+    }
+  }
+  get count() {
+    return this.size;
+  }
+  async build(records, { persist = true } = {}) {
+    if (records.length === 0) throw new Error("At least one record is required");
+    for (const record of records) {
+      if (record.embedding.length !== this.dimensions) {
+        throw new Error(
+          `Record ${record.id} has ${record.embedding.length} dims; expected ${this.dimensions}`
+        );
+      }
+    }
+    this.ids = new Array(records.length);
+    this.texts = new Array(records.length);
+    this.metadata = new Array(records.length);
+    this.full = new Float32Array(records.length * this.dimensions);
+    this.coarse = new Int8Array(records.length * this.coarseDimension);
+    this.scales = new Float32Array(records.length);
+    this.size = records.length;
+    for (let row = 0; row < records.length; row++) {
+      const record = records[row];
+      const normalized = l2Normalize(record.embedding, this.dimensions);
+      this.ids[row] = record.id;
+      this.texts[row] = record.text;
+      this.metadata[row] = record.metadata;
+      this.full.set(normalized, row * this.dimensions);
+      const quantized = quantizeInt8(normalized, this.coarseDimension);
+      this.coarse.set(quantized.data, row * this.coarseDimension);
+      this.scales[row] = quantized.scale;
+    }
+    if (persist && this.store) {
+      await this.store.clear();
+      const normalizedRecords = records.map((record, row) => ({
+        ...record,
+        embedding: this.full.slice(row * this.dimensions, (row + 1) * this.dimensions)
+      }));
+      await this.store.add(normalizedRecords);
+    }
+  }
+  static async load(store, options = {}) {
+    const index = new _MatryoshkaIndex({ ...options, store });
+    const records = await store.getAll();
+    await index.build(records, { persist: false });
+    return index;
+  }
+  search(query, options = {}) {
+    if (this.size === 0) throw new Error("Index is empty; call build() first");
+    const topK = options.topK ?? 10;
+    const refine = options.refine ?? true;
+    const coarseDimension = options.coarseDimension ?? this.coarseDimension;
+    if (coarseDimension > this.coarseDimension) {
+      throw new Error(
+        `coarseDimension ${coarseDimension} exceeds the indexed stride ${this.coarseDimension}`
+      );
+    }
+    const queryFull = l2Normalize(query, this.dimensions);
+    const queryCoarse = quantizeInt8(queryFull, coarseDimension);
+    const refineTopK = Math.max(
+      topK,
+      Math.min(this.refineTopK, options.refineTopK ?? this.refineTopK, this.size)
+    );
+    const heap = new TopKHeap(refineTopK);
+    for (let row = 0; row < this.size; row++) {
+      const offset = row * this.coarseDimension;
+      let sum = 0;
+      for (let i = 0; i < coarseDimension; i++) {
+        sum += queryCoarse.data[i] * this.coarse[offset + i];
+      }
+      heap.push(row, sum * this.scales[row]);
+    }
+    let candidates = heap.values().map((candidate) => ({ ...candidate, coarseScore: candidate.score }));
+    if (refine) {
+      candidates = candidates.map((candidate) => ({
+        ...candidate,
+        score: dot(
+          queryFull,
+          this.full.subarray(
+            candidate.index * this.dimensions,
+            (candidate.index + 1) * this.dimensions
+          ),
+          this.dimensions
+        )
+      })).sort((a, b) => b.score - a.score);
+    }
+    return candidates.slice(0, topK).map((candidate) => ({
+      id: this.ids[candidate.index],
+      text: this.texts[candidate.index],
+      metadata: this.metadata[candidate.index],
+      score: candidate.score,
+      coarseScore: candidate.coarseScore
+    }));
+  }
+  exactSearchAtDimension(query, dimension, topK = 10) {
+    if (dimension > this.dimensions) throw new Error("dimension exceeds index dimensions");
+    const queryNormalized = truncateAndNormalize(query, dimension);
+    const scored = [];
+    for (let row = 0; row < this.size; row++) {
+      const vector = truncateAndNormalize(
+        this.full.subarray(row * this.dimensions, (row + 1) * this.dimensions),
+        dimension
+      );
+      scored.push({ index: row, score: dot(queryNormalized, vector, dimension) });
+    }
+    return scored.sort((a, b) => b.score - a.score).slice(0, topK);
+  }
+  recallAtK(queries, groundTruth, dimension, topK = 10) {
+    let hits = 0;
+    let total = 0;
+    for (let q = 0; q < queries.length; q++) {
+      const expected = new Set(groundTruth[q].slice(0, topK));
+      const candidates = this.exactSearchAtDimension(queries[q], dimension, topK);
+      for (const candidate of candidates) {
+        if (expected.has(this.ids[candidate.index])) hits++;
+      }
+      total += Math.min(topK, expected.size);
+    }
+    return total === 0 ? 0 : hits / total;
+  }
+  get idList() {
+    return this.ids;
+  }
+};
+async function embedMatryoshka(text, dimension, embed) {
+  const full = await embed(text);
+  return truncateAndNormalize(full, dimension);
+}
+function createMatryoshkaEmbedder(embed) {
+  return (text, dimension = 768) => embedMatryoshka(text, dimension, embed);
+}
+
+// src/speculative.ts
+var SpeculativeDecoder = class {
+  constructor(options) {
+    if (options.draft.vocabSize !== options.target.vocabSize) {
+      throw new Error("Draft and target models must share a vocabulary size");
+    }
+    const gamma = options.gamma ?? 5;
+    if (!Number.isInteger(gamma) || gamma < 1) {
+      throw new Error("gamma must be a positive integer");
+    }
+    this.draft = options.draft;
+    this.target = options.target;
+    this.gamma = gamma;
+    this.rng = options.rng ?? Math.random;
+    this.eosTokenId = options.eosTokenId;
+  }
+  async generate(prompt, maxNewTokens = 64, { temperature = 1 } = {}) {
+    if (prompt.length === 0) throw new Error("prompt must not be empty");
+    if (maxNewTokens < 1) throw new Error("maxNewTokens must be positive");
+    if (temperature <= 0) throw new Error("temperature must be positive");
+    const started = performance.now();
+    let draftState = await this.draft.prefill(prompt);
+    let targetState = await this.target.prefill(prompt);
+    const output = [];
+    let draftTokens = 0;
+    let acceptedTokens = 0;
+    let bonusTokens = 0;
+    let rejectedTokens = 0;
+    let targetCalls = 0;
+    let draftCalls = 0;
+    while (output.length < maxNewTokens) {
+      const gamma = Math.min(this.gamma, maxNewTokens - output.length);
+      const draft = await this.draftBatch(draftState, gamma, temperature, draftCalls);
+      draftState = draft.state;
+      draftCalls = draft.calls;
+      draftTokens += draft.tokens.length;
+      const prefixLength = targetState.tokens.length;
+      const verification = await this.target.decode(targetState, draft.tokens);
+      targetCalls++;
+      targetState = verification.state;
+      let rejected = false;
+      for (let i = 0; i < draft.tokens.length; i++) {
+        const token = draft.tokens[i];
+        const q = draft.probabilities[i][token];
+        const p = probability(verification.logits[i], token, temperature);
+        if (this.rng() < Math.min(1, p / q)) {
+          output.push(token);
+          acceptedTokens++;
+          if (token === this.eosTokenId || output.length >= maxNewTokens) break;
+          continue;
+        }
+        const residual = residualDistribution(
+          verification.logits[i],
+          draft.probabilities[i],
+          temperature
+        );
+        const replacement = sample(residual, this.rng());
+        output.push(replacement);
+        rejectedTokens++;
+        rejected = true;
+        const keep = prefixLength + i;
+        targetState = this.target.truncate(targetState, keep);
+        draftState = this.draft.truncate(draftState, keep);
+        const targetAdvance2 = await this.target.decode(targetState, [replacement]);
+        targetCalls++;
+        targetState = targetAdvance2.state;
+        const draftAdvance2 = await this.draft.decode(draftState, [replacement]);
+        draftCalls++;
+        draftState = draftAdvance2.state;
+        break;
+      }
+      if (rejected) continue;
+      if (output.length >= maxNewTokens || output[output.length - 1] === this.eosTokenId) break;
+      const bonusDistribution = softmax(
+        verification.logits[draft.tokens.length],
+        temperature
+      );
+      const bonus = sample(bonusDistribution, this.rng());
+      output.push(bonus);
+      bonusTokens++;
+      const targetAdvance = await this.target.decode(targetState, [bonus]);
+      targetCalls++;
+      targetState = targetAdvance.state;
+      const draftAdvance = await this.draft.decode(draftState, [bonus]);
+      draftCalls++;
+      draftState = draftAdvance.state;
+      if (bonus === this.eosTokenId) break;
+    }
+    const elapsedMs = performance.now() - started;
+    const stats = {
+      outputTokens: output.length,
+      draftTokens,
+      acceptedTokens,
+      bonusTokens,
+      rejectedTokens,
+      targetCalls,
+      draftCalls,
+      acceptanceRate: draftTokens === 0 ? 0 : acceptedTokens / draftTokens,
+      targetCallsPerToken: output.length === 0 ? 0 : targetCalls / output.length,
+      elapsedMs,
+      tokensPerSecond: elapsedMs === 0 ? 0 : output.length / elapsedMs * 1e3
+    };
+    return { tokens: output, stats };
+  }
+  async draftBatch(state, gamma, temperature, calls) {
+    let current = state;
+    const tokens = [];
+    const probabilities = [];
+    const first = await this.draft.decode(current, []);
+    calls++;
+    let nextDistribution = first.logits[0];
+    for (let i = 0; i < gamma; i++) {
+      const distribution = softmax(nextDistribution, temperature);
+      const token = sample(distribution, this.rng());
+      tokens.push(token);
+      probabilities.push(distribution);
+      const advanced = await this.draft.decode(current, [token]);
+      calls++;
+      current = advanced.state;
+      nextDistribution = advanced.logits[advanced.logits.length - 1];
+    }
+    return { state: current, tokens, probabilities, calls };
+  }
+};
+function softmax(logits, temperature = 1) {
+  let max = -Infinity;
+  for (let i = 0; i < logits.length; i++) max = Math.max(max, logits[i]);
+  const output = new Float32Array(logits.length);
+  let sum = 0;
+  for (let i = 0; i < logits.length; i++) {
+    const value = Math.exp((logits[i] - max) / temperature);
+    output[i] = value;
+    sum += value;
+  }
+  if (sum === 0) return output;
+  for (let i = 0; i < output.length; i++) output[i] /= sum;
+  return output;
+}
+function probability(logits, token, temperature = 1) {
+  return softmax(logits, temperature)[token] ?? 0;
+}
+function sample(distribution, random) {
+  let cumulative = 0;
+  for (let i = 0; i < distribution.length; i++) {
+    cumulative += distribution[i];
+    if (random <= cumulative) return i;
+  }
+  return distribution.length - 1;
+}
+function residualDistribution(targetLogits, draftProbabilities, temperature = 1) {
+  const p = softmax(targetLogits, temperature);
+  const q = draftProbabilities;
+  const residual = new Float32Array(p.length);
+  let sum = 0;
+  for (let i = 0; i < p.length; i++) {
+    const value = Math.max(0, p[i] - q[i]);
+    residual[i] = value;
+    sum += value;
+  }
+  if (sum === 0) return p;
+  for (let i = 0; i < residual.length; i++) residual[i] /= sum;
+  return residual;
+}
+var MockLanguageModel = class {
+  constructor(policy, vocabSize, latencyMs = 0) {
+    this.policy = policy;
+    this.vocabSize = vocabSize;
+    this.latencyMs = latencyMs;
+  }
+  async prefill(tokens) {
+    await delay(this.latencyMs);
+    return { tokens: tokens.slice() };
+  }
+  async decode(state, tokens) {
+    await delay(this.latencyMs);
+    const logits = [];
+    for (let i = 0; i <= tokens.length; i++) {
+      logits.push(this.policy([...state.tokens, ...tokens.slice(0, i)]));
+    }
+    return { state: { tokens: [...state.tokens, ...tokens] }, logits };
+  }
+  truncate(state, length) {
+    return { ...state, tokens: state.tokens.slice(0, length), cache: void 0 };
+  }
+};
+function delay(ms) {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// src/onnx-lm.ts
+var ort3 = __toESM(require("onnxruntime-web"));
+var OnnxCausalLM = class {
+  constructor(session, vocabSize, options = {}) {
+    this.session = session;
+    if (!Number.isInteger(vocabSize) || vocabSize < 1) {
+      throw new Error("vocabSize must be a positive integer");
+    }
+    this.vocabSize = vocabSize;
+    this.inputIdsName = options.inputIdsName ?? "input_ids";
+    this.attentionMaskName = options.attentionMaskName ?? "attention_mask";
+    this.positionIdsName = options.positionIdsName;
+    this.logitsName = options.logitsName ?? "logits";
+  }
+  async prefill(tokens) {
+    if (tokens.length === 0) throw new Error("prefill requires a non-empty prompt");
+    return { tokens: tokens.slice() };
+  }
+  async decode(state, tokens) {
+    const all = [...state.tokens, ...tokens];
+    if (all.length === 0) throw new Error("decode requires at least one token");
+    if (state.tokens.length === 0) throw new Error("decode requires a prefilled state");
+    const feeds = {
+      [this.inputIdsName]: new ort3.Tensor(
+        "int64",
+        BigInt64Array.from(all, (token) => BigInt(token)),
+        [1, all.length]
+      ),
+      [this.attentionMaskName]: new ort3.Tensor(
+        "int64",
+        BigInt64Array.from({ length: all.length }, () => 1n),
+        [1, all.length]
+      )
+    };
+    if (this.positionIdsName) {
+      feeds[this.positionIdsName] = new ort3.Tensor(
+        "int64",
+        BigInt64Array.from(all, (_, index) => BigInt(index)),
+        [1, all.length]
+      );
+    }
+    const outputs = await this.session.run(feeds);
+    const tensor = outputs[this.logitsName];
+    if (!tensor) {
+      throw new Error(`ONNX model did not return "${this.logitsName}"`);
+    }
+    const dims = tensor.dims;
+    const vocab = dims[dims.length - 1];
+    if (vocab !== this.vocabSize) {
+      throw new Error(
+        `ONNX logits vocabulary ${vocab} does not match configured ${this.vocabSize}`
+      );
+    }
+    const data = tensor.data;
+    const seq = all.length;
+    const expected = seq * vocab;
+    if (data.length < expected) {
+      throw new Error(`ONNX logits tensor is too small (${data.length} < ${expected})`);
+    }
+    const start = state.tokens.length - 1;
+    const logits = [];
+    for (let i = 0; i <= tokens.length; i++) {
+      const position = start + i;
+      const offset = dims.length === 3 ? position * vocab : position * vocab;
+      logits.push(new Float32Array(data.subarray(offset, offset + vocab)));
+    }
+    return { state: { tokens: all }, logits };
+  }
+  truncate(state, length) {
+    return { tokens: state.tokens.slice(0, length) };
+  }
+};
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   EdgeInfer,
   EventEmitter,
   ImageProcessor,
+  IndexedDbVectorStore,
+  MatryoshkaIndex,
+  MemoryVectorStore,
+  MockLanguageModel,
   ModelCache,
+  OnnxCausalLM,
   RuntimeManager,
-  Tokenizer
+  SpeculativeDecoder,
+  Tokenizer,
+  createMatryoshkaEmbedder,
+  dequantizeInt8,
+  embedMatryoshka,
+  l2Normalize,
+  probability,
+  quantizeInt8,
+  residualDistribution,
+  sample,
+  softmax,
+  truncateAndNormalize
 });
 //# sourceMappingURL=index.js.map
