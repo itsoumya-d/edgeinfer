@@ -3,19 +3,44 @@
 
 import * as ort from 'onnxruntime-web';
 
+export interface VRAMProbeResult {
+  available: boolean;
+  /** Largest single storage buffer the device actually allocated. */
+  maxAllocationBytes: number;
+  testedAllocations: number[];
+  failedAllocationBytes: number | null;
+  adapterLimits: {
+    maxBufferSize: number;
+    maxStorageBufferBindingSize: number;
+  };
+  deviceCreated: boolean;
+  probe: 'empirical' | 'limits' | 'unavailable';
+}
+
+export interface VRAMProbeOptions {
+  startBytes?: number;
+  maxBytes?: number;
+  stepBytes?: number;
+}
+
 export interface GPUCapabilities {
   provider: string;
   hasWebGPU: boolean;
   hasWebNN: boolean;
   /**
-   * NOT an amount of video memory. This is the larger of the adapter's
-   * `maxBufferSize` and `maxStorageBufferBindingSize` limits, i.e. the largest
-   * single GPU buffer/binding WebGPU will allow. The WebGPU spec's guaranteed
-   * baseline values are 256 MiB and 128 MiB respectively, and browsers commonly
-   * report values close to the baseline regardless of how much VRAM the card
-   * physically has. Treat this as a maximum-tensor-size budget, not as VRAM.
+   * NOT an amount of video memory. This is the largest single GPU storage
+   * buffer allocated by the empirical probe, bounded by the adapter's
+   * `maxBufferSize`. Browser baselines are commonly 256 MiB regardless of the
+   * physical card, so treat this as a maximum-tensor-size budget, not as VRAM.
    */
   estimatedVRAM: number;
+  /** Raw adapter limits, kept separate from the empirical probe. */
+  adapterLimits: {
+    maxBufferSize: number;
+    maxStorageBufferBindingSize: number;
+  } | null;
+  /** Evidence for how `estimatedVRAM` was obtained. */
+  vramProbe: VRAMProbeResult | null;
   recommendedQuantization: 'fp32' | 'fp16' | 'int8' | 'int4';
 }
 
@@ -41,6 +66,8 @@ export class RuntimeManager {
       hasWebGPU: false,
       hasWebNN: false,
       estimatedVRAM: 0,
+      adapterLimits: null,
+      vramProbe: null,
       recommendedQuantization: 'int8',
     };
 
@@ -61,16 +88,25 @@ export class RuntimeManager {
           capabilities.hasWebGPU = true;
           capabilities.provider = 'webgpu';
 
-          // Estimate VRAM from adapter limits
           const maxBufferSize = adapter.limits?.maxBufferSize || 0;
           const maxStorageSize = adapter.limits?.maxStorageBufferBindingSize || 0;
-          capabilities.estimatedVRAM = Math.max(maxBufferSize, maxStorageSize);
+          capabilities.adapterLimits = {
+            maxBufferSize,
+            maxStorageBufferBindingSize: maxStorageSize,
+          };
 
-          // Recommend quantization based on estimated VRAM
+          // Probe what the device actually allocates instead of treating the
+          // adapter's baseline limits as physical VRAM.
+          const probe = await RuntimeManager.probeVRAM(adapter);
+          capabilities.vramProbe = probe;
+          capabilities.estimatedVRAM = probe.available
+            ? probe.maxAllocationBytes
+            : Math.max(maxBufferSize, maxStorageSize);
+
           const vramGB = capabilities.estimatedVRAM / (1024 * 1024 * 1024);
-          if (vramGB >= 8) {
+          if (vramGB >= 4) {
             capabilities.recommendedQuantization = 'fp16';
-          } else if (vramGB >= 4) {
+          } else if (vramGB >= 1) {
             capabilities.recommendedQuantization = 'int8';
           } else {
             capabilities.recommendedQuantization = 'int4';
@@ -149,6 +185,120 @@ export class RuntimeManager {
       graphOptimizationLevel: 'all',
     });
     return { session, provider: 'wasm' };
+  }
+
+  /**
+   * Empirically probe the largest single storage buffer the adapter's device
+   * will allocate. Allocates and destroys one buffer at a time; never relies on
+   * `maxBufferSize` as if it were physical VRAM.
+   */
+  static async probeVRAM(
+    adapter: any,
+    options: VRAMProbeOptions = {}
+  ): Promise<VRAMProbeResult> {
+    const limits = {
+      maxBufferSize: Number(adapter?.limits?.maxBufferSize) || 0,
+      maxStorageBufferBindingSize:
+        Number(adapter?.limits?.maxStorageBufferBindingSize) || 0,
+    };
+    const unavailable: VRAMProbeResult = {
+      available: false,
+      maxAllocationBytes: 0,
+      testedAllocations: [],
+      failedAllocationBytes: null,
+      adapterLimits: limits,
+      deviceCreated: false,
+      probe: 'unavailable',
+    };
+
+    if (!adapter || typeof adapter.requestDevice !== 'function') return unavailable;
+
+    let device: any;
+    try {
+      device = await adapter.requestDevice();
+    } catch {
+      return unavailable;
+    }
+    if (!device || typeof device.createBuffer !== 'function') {
+      return { ...unavailable, deviceCreated: Boolean(device) };
+    }
+
+    const MIB = 1024 * 1024;
+    const start = Math.max(1, options.startBytes ?? 64 * MIB);
+    const configuredMax = Math.max(start, options.maxBytes ?? 4 * 1024 * MIB);
+    const max = limits.maxBufferSize > 0
+      ? Math.min(configuredMax, limits.maxBufferSize)
+      : configuredMax;
+    const step = Math.max(1, options.stepBytes ?? 32 * MIB);
+    const tested: number[] = [];
+    const STORAGE = 0x80;
+    const COPY_DST = 0x8;
+
+    const attempt = (size: number): boolean => {
+      tested.push(size);
+      try {
+        const buffer = device.createBuffer({ size, usage: STORAGE | COPY_DST });
+        buffer?.destroy?.();
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    let low = 0;
+    let high = 0;
+    let size = Math.min(start, max);
+    while (size >= 1) {
+      if (attempt(size)) {
+        low = size;
+        break;
+      }
+      high = size;
+      if (size === 1) break;
+      size = Math.max(1, Math.floor(size / 2));
+    }
+
+    if (low === 0) {
+      device.destroy?.();
+      return {
+        ...unavailable,
+        testedAllocations: tested,
+        failedAllocationBytes: high || null,
+        deviceCreated: true,
+        probe: 'limits',
+      };
+    }
+
+    let next = Math.min(max, low * 2);
+    while (next > low && tested.length < 16) {
+      if (attempt(next)) {
+        low = next;
+        next = Math.min(max, low * 2);
+        if (low === max) break;
+      } else {
+        high = next;
+        break;
+      }
+    }
+    if (high === 0) high = Math.min(max, low * 2);
+
+    while (high - low > step && tested.length < 24) {
+      const mid = Math.floor((low + high) / 2);
+      if (mid <= low || mid >= high) break;
+      if (attempt(mid)) low = mid;
+      else high = mid;
+    }
+
+    device.destroy?.();
+    return {
+      available: true,
+      maxAllocationBytes: low,
+      testedAllocations: tested,
+      failedAllocationBytes: high > low ? high : null,
+      adapterLimits: limits,
+      deviceCreated: true,
+      probe: 'empirical',
+    };
   }
 
   /**

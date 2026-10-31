@@ -35,7 +35,7 @@ Real exported symbols: `EdgeInfer`, `EventEmitter`, `ImageProcessor`, `ModelCach
   truncation.
 - **ONNX Runtime Web causal-LM adapter** (`OnnxCausalLM`) for standard
   `input_ids`/`attention_mask` exports.
-- MIT licensed, no license key, 95 tests.
+- MIT licensed, no license key, 106 tests.
 
 ## Installation
 
@@ -125,7 +125,7 @@ Creates a session from a pre-loaded model buffer. Rejects with `Error` if the bu
 Returns `true` if `navigator.gpu` is present and the adapter request succeeds.
 
 #### `static async getCapabilities(): Promise<GPUCapabilities>`
-Returns `{ provider, hasWebGPU, hasWebNN, estimatedVRAM, recommendedQuantization }`.
+Returns `{ provider, hasWebGPU, hasWebNN, estimatedVRAM, adapterLimits, vramProbe, recommendedQuantization }`. `estimatedVRAM` is the largest single storage buffer the empirical probe actually allocated, not total VRAM.
 
 #### `async predict(inputs, shapes?): Promise<Record<string, Float32Array>>`
 Low-level: pass raw typed arrays keyed by ONNX input name, receive raw output tensors.
@@ -180,6 +180,27 @@ const result = await model.generate('Explain KV caching.', {
 The decoder must expose a `logits` output (or an output whose name contains
 `logits`). Input dtype is selected from ONNX metadata, with `int64Inputs` as an
 explicit override.
+
+#### `async *generateStream(prompt, options?): AsyncGenerator<GenerationEvent>`
+Yields `{ tokenId, text, index }` as each token is chosen. The KV-cache loop is
+the same as `generate()`; an optional `signal` aborts between decode steps.
+
+```typescript
+for await (const event of model.generateStream('Explain KV caching.', {
+  maxNewTokens: 64,
+  signal: controller.signal,
+})) {
+  process.stdout.write(event.text);
+}
+```
+
+#### `async chat(messages, options?): Promise<ChatResult>`
+Collects a chat completion from `ChatMessage[]` (`system`, `user`, `assistant`).
+The default prompt template is `<|role|>content` lines followed by
+`<|assistant|>`; pass `chatTemplate` to match the target tokenizer.
+
+#### `async *chatStream(messages, options?): AsyncGenerator<GenerationEvent>`
+Streaming form of `chat()`.
 
 #### `async sentiment(text: string): Promise<{ label: string; score: number }>`
 Returns `{ label: 'positive'|'negative'|'neutral', score }`. Requires tokenizer.
@@ -291,11 +312,12 @@ WebGPU measurement. Reproduce with `npm run bench:speculative`.
 - **Bundle size claim "< 5KB" is incorrect.** `dist/index.mjs` is ~24KB before gzip. `onnxruntime-web` is a real runtime **dependency** (not a peer dependency) and adds ~1.5MB plus the `.wasm` binaries.
 - **CDN use needs an import map.** See Installation. `dist/index.mjs` imports the bare specifier `onnxruntime-web`, which browsers cannot resolve unaided.
 - **`onnxruntime-web` must be >= 1.21.0** for the WebGPU execution provider to be registered by the root entry point; `package.json` declares `^1.21.0`.
-- **`estimatedVRAM` is not VRAM.** It is `max(maxBufferSize, maxStorageBufferBindingSize)` from the WebGPU adapter — per-buffer limits whose spec baselines are 256 MiB / 128 MiB. Browsers commonly report near-baseline values regardless of physical VRAM, so the `>= 8GB → fp16` branch of `recommendedQuantization` is effectively unreachable, and `RuntimeManager.canFitModel()` is unreliable. WebGPU exposes no total-VRAM API.
-- **Generic generation only.** `generate()` supports models that expose `present.*` outputs and `past_key_values.*` inputs plus a `logits` output. Architectures with a different cache layout (for example a single combined cache tensor) need a custom adapter. The loop is unit-tested with a deterministic mock session; no real decoder model is benchmarked in CI. There is no streaming token callback yet.
+- **`estimatedVRAM` is an allocation probe, not total VRAM.** `RuntimeManager.probeVRAM()` binary-searches the largest single storage buffer the device will allocate, bounded by `adapter.limits.maxBufferSize`, and destroys each buffer immediately. The result is a maximum-tensor-size budget. WebGPU exposes no total-VRAM API, and browser baselines are commonly 256 MiB regardless of the physical card. The probe is unit-tested with a mocked adapter; a real WebGPU measurement is not available in this CI environment.
+- **Generation supports cache-aware ONNX exports.** `generate()`, `generateStream()`, `chat()`, and `chatStream()` reuse `present.*` / `past_key_values.*` tensors when the model exposes them. Architectures with a different cache layout need a custom adapter. The loop is unit-tested with a deterministic mock session; no real decoder model is benchmarked in CI.
+- **Paged GPUBuffer-resident KV is not implemented.** ONNX Runtime Web owns the tensors it returns; the JS SDK cannot pin `past_key_values` in a `GPUBuffer` with zero CPU readback. A true paged-attention path needs a custom WebGPU transformer kernel, which is outside this ONNX-runtime wrapper. The current path is cache reuse at the ONNX tensor boundary, not a custom paged kernel.
 - **No quantization.** `recommendedQuantization` is a string hint; EdgeInfer never quantizes weights. Models must be pre-quantized.
 - **No GGUF, no audio.** ONNX only. No Whisper/speech pipeline exists.
-- **Tokenizer covers WordPiece and merge-table BPE.** Byte-level pre-tokenization (GPT-2 regex and `Ġ` handling) and full SentencePiece normalization pipelines are not reproduced; supply `bpeSpaceMarker` and a compatible vocabulary. Unsupported normalizers fail rather than silently change token IDs.
+- **Tokenizer covers WordPiece and merge-table BPE.** Byte-level pre-tokenization (GPT-2 regex and `Ġ` handling) and full SentencePiece normalization pipelines are not reproduced; supply `bpeSpaceMarker` and a compatible vocabulary. Unsupported normalizers fail rather than silently change token IDs. BPE merges are applied; the earlier "BPE not implemented" note was stale.
 - **Downloads have per-transfer deadlines, not whole-load deadlines.** Model/tokenizer headers and bodies default to 120 seconds each and support cancellation. Runtime initialization and inference are not covered. Partial HTTP model responses are rejected; range assembly is not implemented.
 - **No production adopters yet.** APIs may change without notice.
 
@@ -337,5 +359,6 @@ WordPiece tokenization remains lowercase by default. Set `lowercase: false` in
 null normalizer (identity), `Lowercase`, or a `BertNormalizer` with explicit
 `lowercase` and all of `strip_accents`, `clean_text`, `handle_chinese_chars` false.
 Other normalizers are rejected, not silently approximated. Omitted normalizers
-retain the legacy lowercase default. This does not implement BPE, accent stripping,
-Unicode normalization, or full HuggingFace tokenizer compatibility.
+retain the legacy lowercase default. Merge-table BPE is implemented; accent
+stripping, Unicode normalization, and full HuggingFace tokenizer compatibility are
+not.

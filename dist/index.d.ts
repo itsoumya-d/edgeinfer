@@ -34,19 +34,42 @@ declare class ModelCache extends EventEmitter {
     getModel(url: string, forceDownload?: boolean, options?: DownloadOptions): Promise<ArrayBuffer>;
 }
 
+interface VRAMProbeResult {
+    available: boolean;
+    /** Largest single storage buffer the device actually allocated. */
+    maxAllocationBytes: number;
+    testedAllocations: number[];
+    failedAllocationBytes: number | null;
+    adapterLimits: {
+        maxBufferSize: number;
+        maxStorageBufferBindingSize: number;
+    };
+    deviceCreated: boolean;
+    probe: 'empirical' | 'limits' | 'unavailable';
+}
+interface VRAMProbeOptions {
+    startBytes?: number;
+    maxBytes?: number;
+    stepBytes?: number;
+}
 interface GPUCapabilities {
     provider: string;
     hasWebGPU: boolean;
     hasWebNN: boolean;
     /**
-     * NOT an amount of video memory. This is the larger of the adapter's
-     * `maxBufferSize` and `maxStorageBufferBindingSize` limits, i.e. the largest
-     * single GPU buffer/binding WebGPU will allow. The WebGPU spec's guaranteed
-     * baseline values are 256 MiB and 128 MiB respectively, and browsers commonly
-     * report values close to the baseline regardless of how much VRAM the card
-     * physically has. Treat this as a maximum-tensor-size budget, not as VRAM.
+     * NOT an amount of video memory. This is the largest single GPU storage
+     * buffer allocated by the empirical probe, bounded by the adapter's
+     * `maxBufferSize`. Browser baselines are commonly 256 MiB regardless of the
+     * physical card, so treat this as a maximum-tensor-size budget, not as VRAM.
      */
     estimatedVRAM: number;
+    /** Raw adapter limits, kept separate from the empirical probe. */
+    adapterLimits: {
+        maxBufferSize: number;
+        maxStorageBufferBindingSize: number;
+    } | null;
+    /** Evidence for how `estimatedVRAM` was obtained. */
+    vramProbe: VRAMProbeResult | null;
     recommendedQuantization: 'fp32' | 'fp16' | 'int8' | 'int4';
 }
 /**
@@ -80,6 +103,12 @@ declare class RuntimeManager {
         session: ort.InferenceSession;
         provider: string;
     }>;
+    /**
+     * Empirically probe the largest single storage buffer the adapter's device
+     * will allocate. Allocates and destroys one buffer at a time; never relies on
+     * `maxBufferSize` as if it were physical VRAM.
+     */
+    static probeVRAM(adapter: any, options?: VRAMProbeOptions): Promise<VRAMProbeResult>;
     /**
      * Resolve `promise`, or resolve to `null` if it has not settled within `ms`.
      * Used to stop a hung GPU driver from blocking model loading forever.
@@ -225,10 +254,29 @@ interface GenerateOptions {
     topK?: number;
     /** Stop token. Defaults to the tokenizer's `</s>` when present. */
     eosTokenId?: number;
+    /** Abort an in-flight stream between decode steps. */
+    signal?: AbortSignal;
 }
 interface GenerationResult {
     text: string;
     tokenIds: number[];
+}
+interface GenerationEvent {
+    tokenId: number;
+    /** Best-effort decoded delta for this token. */
+    text: string;
+    index: number;
+}
+interface ChatMessage {
+    role: 'system' | 'user' | 'assistant';
+    content: string;
+}
+interface ChatOptions extends GenerateOptions {
+    /** Override the default role-marker template for the target model. */
+    chatTemplate?: (messages: ChatMessage[]) => string;
+}
+interface ChatResult extends GenerationResult {
+    prompt: string;
 }
 /**
  * EdgeInfer — On-Device WebGPU/WASM AI Inference Engine.
@@ -294,6 +342,19 @@ declare class EdgeInfer {
      * inputs are re-run over the full sequence each step.
      */
     generate(prompt: string, options?: GenerateOptions): Promise<GenerationResult>;
+    /**
+     * Stream generated tokens. The decoder loop is identical to generate(), but
+     * each token is yielded as soon as it is chosen so a UI can paint before the
+     * full completion finishes.
+     */
+    generateStream(prompt: string, options?: GenerateOptions): AsyncGenerator<GenerationEvent, void, unknown>;
+    /**
+     * Stream a chat completion using a role-marker template. The default template
+     * is model-agnostic; pass `chatTemplate` to match the target tokenizer.
+     */
+    chatStream(messages: ChatMessage[], options?: ChatOptions): AsyncGenerator<GenerationEvent, void, unknown>;
+    /** Collect a chat completion. */
+    chat(messages: ChatMessage[], options?: ChatOptions): Promise<ChatResult>;
     /** Pick the last-token logits from the first output that looks like logits. */
     private findLogits;
     /** Argmax (temperature 0) or temperature/top-k sampling over last-token logits. */
@@ -526,4 +587,4 @@ declare class OnnxCausalLM implements LanguageModel {
     truncate(state: ModelState, length: number): ModelState;
 }
 
-export { type ClassificationResult, type DecodeResult, type Detection, type DownloadOptions, EdgeInfer, type EdgeInferOptions, type EmbedFn, type EncodingResult, EventEmitter, type GPUCapabilities, type GenerateOptions, type GenerationResult, ImageProcessor, IndexedDbVectorStore, type LanguageModel, type LogitPolicy, MatryoshkaIndex, type MatryoshkaOptions, MemoryVectorStore, MockLanguageModel, ModelCache, type ModelOptions, type ModelState, OnnxCausalLM, type OnnxCausalOptions, RuntimeManager, type SearchOptions, type SearchResult, SpeculativeDecoder, type SpeculativeGenerationResult, type SpeculativeOptions, type SpeculativeStats, Tokenizer, type TokenizerConfig, type VectorRecord, type VectorStore, createMatryoshkaEmbedder, dequantizeInt8, embedMatryoshka, l2Normalize, probability, quantizeInt8, residualDistribution, sample, softmax, truncateAndNormalize };
+export { type ChatMessage, type ChatOptions, type ChatResult, type ClassificationResult, type DecodeResult, type Detection, type DownloadOptions, EdgeInfer, type EdgeInferOptions, type EmbedFn, type EncodingResult, EventEmitter, type GPUCapabilities, type GenerateOptions, type GenerationEvent, type GenerationResult, ImageProcessor, IndexedDbVectorStore, type LanguageModel, type LogitPolicy, MatryoshkaIndex, type MatryoshkaOptions, MemoryVectorStore, MockLanguageModel, ModelCache, type ModelOptions, type ModelState, OnnxCausalLM, type OnnxCausalOptions, RuntimeManager, type SearchOptions, type SearchResult, SpeculativeDecoder, type SpeculativeGenerationResult, type SpeculativeOptions, type SpeculativeStats, Tokenizer, type TokenizerConfig, type VRAMProbeOptions, type VRAMProbeResult, type VectorRecord, type VectorStore, createMatryoshkaEmbedder, dequantizeInt8, embedMatryoshka, l2Normalize, probability, quantizeInt8, residualDistribution, sample, softmax, truncateAndNormalize };
