@@ -129,11 +129,10 @@ declaring `pixel_values: [1,3,224,224]` will reject a rank-2 tensor with
 await model.predict({ pixel_values: chw }, { pixel_values: [1, 3, 224, 224] });
 ```
 
-Note on input dtype: `classify()`, `embed()` and `sentiment()` build **`Int32Array`**
-inputs (`tensor(int32)`). Most ONNX models exported from HuggingFace Transformers
-declare `input_ids`/`attention_mask` as **`tensor(int64)`** and will reject them with
-`Unexpected input data type. Actual: (tensor(int32)), expected: (tensor(int64))`.
-For those models, call `predict()` directly with `BigInt64Array` inputs.
+Note on input dtype: `classify()`, `embed()` and `sentiment()` select **`tensor(int64)`**
+automatically when the ONNX session declares `input_ids` as int64, or when
+`int64Inputs: true` is passed at load time; otherwise they use `tensor(int32)`.
+`predict()` still accepts either `Int32Array` or `BigInt64Array` directly.
 
 #### `async classify(text: string): Promise<ClassificationResult[]>`
 Requires a tokenizer (pass `tokenizerUrl` or `tokenizerConfig` in options, or call `setTokenizer()`). Throws `Error` with a clear message if no tokenizer is configured.
@@ -152,6 +151,26 @@ clear errors rather than guessing the shape from the flattened array length. Use
 
 #### `async embedMatryoshka(text: string, dimension: number): Promise<Float32Array>`
 Truncates the embedding to `dimension` and re-normalizes (Matryoshka MRL).
+
+#### `async generate(prompt: string, options?: GenerateOptions): Promise<GenerationResult>`
+Greedy (`temperature: 0`, default) or temperature-sampled autoregressive decoding.
+When the session exposes `present.*` outputs and matching `past_key_values.*` inputs,
+those tensors are reused across steps (KV cache). Otherwise the full sequence is
+re-run each step.
+
+```typescript
+const result = await model.generate('Explain KV caching.', {
+  maxNewTokens: 64,
+  temperature: 0,
+  topK: 0,
+  eosTokenId: 2,
+});
+// result: { text: string, tokenIds: number[] }
+```
+
+The decoder must expose a `logits` output (or an output whose name contains
+`logits`). Input dtype is selected from ONNX metadata, with `int64Inputs` as an
+explicit override.
 
 #### `async sentiment(text: string): Promise<{ label: string; score: number }>`
 Returns `{ label: 'positive'|'negative'|'neutral', score }`. Requires tokenizer.
@@ -175,9 +194,19 @@ Clears the cached capabilities so the next call re-probes the environment.
 
 ### `Tokenizer`
 
-Constructor takes `{ vocab, merges?, specialTokens?, maxLength?, padTokenId?, unkTokenId?, clsTokenId?, sepTokenId? }`. Note: `vocab` is the key — not `vocabulary`.
+Constructor takes `{ vocab, merges?, specialTokens?, maxLength?, padTokenId?, unkTokenId?, clsTokenId?, sepTokenId?, bpeSpaceMarker? }`. Note: `vocab` is the key — not `vocabulary`.
 
-`encode(text, { addSpecialTokens, maxLength, padding })` returns `{ inputIds: Int32Array, attentionMask: Int32Array }`. Empty string returns a single pad token rather than an empty array (which would crash the ONNX session).
+`encode(text, { addSpecialTokens, maxLength, padding })` returns
+`{ inputIds: Int32Array, attentionMask: Int32Array, inputIdsInt64: BigInt64Array, attentionMaskInt64: BigInt64Array }`.
+Both dtypes are always produced, so callers can feed either `tensor(int32)` or
+`tensor(int64)` models without re-encoding.
+
+When `merges` is present the tokenizer applies rank-ordered BPE merges and
+**preserves case by default**; without merges it uses WordPiece and retains the
+legacy uncased default. Pass `lowercase: true` to force uncased input, or
+`bpeSpaceMarker: '▁' | 'Ġ'` for SentencePiece/byte-level vocabularies. Empty input
+returns a single pad token rather than an empty array (which would crash the ONNX
+session).
 
 ### `ImageProcessor`
 
@@ -204,12 +233,12 @@ Constructor takes `{ vocab, merges?, specialTokens?, maxLength?, padTokenId?, un
 - **Performance claims deleted.** The original README listed latency numbers (`~4ms`, `~25 tokens/sec`) measured on an M2 MacBook with Chrome WebGPU. These cannot be verified in a CI environment with no GPU. The table has been removed.
 - **Bundle size claim "< 5KB" is incorrect.** `dist/index.mjs` is ~24KB before gzip. `onnxruntime-web` is a real runtime **dependency** (not a peer dependency) and adds ~1.5MB plus the `.wasm` binaries.
 - **CDN use needs an import map.** See Installation. `dist/index.mjs` imports the bare specifier `onnxruntime-web`, which browsers cannot resolve unaided.
-- **`onnxruntime-web` must be >= 1.21.0** for the WebGPU execution provider to be registered by the root entry point, even though `package.json` currently allows `^1.17.0`.
+- **`onnxruntime-web` must be >= 1.21.0** for the WebGPU execution provider to be registered by the root entry point; `package.json` declares `^1.21.0`.
 - **`estimatedVRAM` is not VRAM.** It is `max(maxBufferSize, maxStorageBufferBindingSize)` from the WebGPU adapter — per-buffer limits whose spec baselines are 256 MiB / 128 MiB. Browsers commonly report near-baseline values regardless of physical VRAM, so the `>= 8GB → fp16` branch of `recommendedQuantization` is effectively unreachable, and `RuntimeManager.canFitModel()` is unreliable. WebGPU exposes no total-VRAM API.
-- **No text generation.** There is no chat, streaming, KV cache or autoregressive decode loop. EdgeInfer cannot run Llama, Phi-3, Gemma or any generative LLM. It does classification, embeddings and vision.
+- **Generic generation only.** `generate()` supports models that expose `present.*` outputs and `past_key_values.*` inputs plus a `logits` output. Architectures with a different cache layout (for example a single combined cache tensor) need a custom adapter. There is no streaming token callback yet.
 - **No quantization.** `recommendedQuantization` is a string hint; EdgeInfer never quantizes weights. Models must be pre-quantized.
 - **No GGUF, no audio.** ONNX only. No Whisper/speech pipeline exists.
-- **Tokenizer is WordPiece-only.** BPE is not implemented. Legacy configurations lowercase by default; use explicit `lowercase: false` or a supported normalizer for cased vocabularies. Unsupported normalizers fail rather than silently change token IDs.
+- **Tokenizer covers WordPiece and merge-table BPE.** Byte-level pre-tokenization (GPT-2 regex and `Ġ` handling) and full SentencePiece normalization pipelines are not reproduced; supply `bpeSpaceMarker` and a compatible vocabulary. Unsupported normalizers fail rather than silently change token IDs.
 - **Downloads have per-transfer deadlines, not whole-load deadlines.** Model/tokenizer headers and bodies default to 120 seconds each and support cancellation. Runtime initialization and inference are not covered. Partial HTTP model responses are rejected; range assembly is not implemented.
 - **No production adopters yet.** APIs may change without notice.
 

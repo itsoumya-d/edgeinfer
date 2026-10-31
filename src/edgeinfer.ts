@@ -16,6 +16,27 @@ export interface EdgeInferOptions extends ModelOptions, DownloadOptions {
   licenseKey?: string;
   tokenizerUrl?: string;
   tokenizerConfig?: TokenizerConfig;
+  /**
+   * Force int64 `input_ids`/`attention_mask` tensors. By default the engine
+   * inspects ONNX input metadata and falls back to int32.
+   */
+  int64Inputs?: boolean;
+}
+
+export interface GenerateOptions {
+  /** Maximum number of new tokens to emit. Default: 64. */
+  maxNewTokens?: number;
+  /** 0 (default) is greedy decoding; >0 enables temperature sampling. */
+  temperature?: number;
+  /** Optional top-k truncation for sampling. 0 disables it. */
+  topK?: number;
+  /** Stop token. Defaults to the tokenizer's `</s>` when present. */
+  eosTokenId?: number;
+}
+
+export interface GenerationResult {
+  text: string;
+  tokenIds: number[];
 }
 
 /**
@@ -33,11 +54,13 @@ export class EdgeInfer {
   private _outputNames: readonly string[];
   private _modelSize: number;
   private _provider: string = 'wasm';
+  private _int64Inputs: boolean;
 
   private constructor(
     session: ort.InferenceSession,
     modelSize: number,
     provider: string,
+    int64Inputs: boolean,
     tokenizer?: Tokenizer
   ) {
     this.session = session;
@@ -45,6 +68,7 @@ export class EdgeInfer {
     this._outputNames = session.outputNames;
     this._modelSize = modelSize;
     this._provider = provider;
+    this._int64Inputs = int64Inputs;
     this.tokenizer = tokenizer || null;
   }
 
@@ -84,7 +108,7 @@ export class EdgeInfer {
       }
 
       checkDownloadAbort(options?.signal);
-      return new EdgeInfer(session, buffer.byteLength, provider, tokenizer);
+      return new EdgeInfer(session, buffer.byteLength, provider, options?.int64Inputs ?? false, tokenizer);
     } catch (error) {
       try { await session.release(); } catch { /* Preserve the original load failure. */ }
       throw error;
@@ -131,15 +155,7 @@ export class EdgeInfer {
     this.requireTokenizer();
     
     const encoding = this.tokenizer!.encode(text, { addSpecialTokens: true });
-    const inputs: Record<string, Int32Array> = {
-      'input_ids': encoding.inputIds,
-      'attention_mask': encoding.attentionMask,
-    };
-
-    // Add token_type_ids if model expects it
-    if (this._inputNames.includes('token_type_ids')) {
-      inputs['token_type_ids'] = new Int32Array(encoding.inputIds.length);
-    }
+    const inputs = this.textInputs(encoding);
 
     const result = await this.predict(inputs);
     const output = result[this._outputNames[0]];
@@ -163,14 +179,7 @@ export class EdgeInfer {
     this.requireTokenizer();
 
     const encoding = this.tokenizer!.encode(text, { addSpecialTokens: true });
-    const inputs: Record<string, Int32Array> = {
-      'input_ids': encoding.inputIds,
-      'attention_mask': encoding.attentionMask,
-    };
-
-    if (this._inputNames.includes('token_type_ids')) {
-      inputs['token_type_ids'] = new Int32Array(encoding.inputIds.length);
-    }
+    const inputs = this.textInputs(encoding);
 
     const result = await this.runInference(inputs);
     const output = result[this._outputNames[0]];
@@ -197,6 +206,178 @@ export class EdgeInfer {
 
     // L2 normalize after truncation
     return this.l2Normalize(truncated);
+  }
+
+  /**
+   * Greedy or temperature-sampled autoregressive generation.
+   *
+   * Decoder models that expose `present.*` outputs and `past_key_values.*`
+   * inputs reuse those tensors across steps (KV-cache). Models without cache
+   * inputs are re-run over the full sequence each step.
+   */
+  async generate(prompt: string, options: GenerateOptions = {}): Promise<GenerationResult> {
+    this.requireTokenizer();
+
+    const maxNewTokens = Math.max(0, options.maxNewTokens ?? 64);
+    const temperature = options.temperature ?? 0;
+    const topK = options.topK ?? 0;
+    const tokenizer = this.tokenizer!;
+    const eosTokenId = options.eosTokenId
+      ?? tokenizer.getSpecialTokenId('</s>')
+      ?? tokenizer.getSpecialTokenId('<|endoftext|>');
+
+    const encoding = tokenizer.encode(prompt, { addSpecialTokens: true });
+    const promptIds = Array.from(encoding.inputIds);
+    const int64 = this.useInt64Inputs();
+
+    const makeIds = (values: number[]): Int32Array | BigInt64Array =>
+      int64
+        ? BigInt64Array.from(values, v => BigInt(v))
+        : Int32Array.from(values);
+
+    const dtype = int64 ? 'int64' : 'int32';
+    let current = promptIds;
+    let past: Record<string, ort.Tensor> = {};
+    const generated: number[] = [];
+
+    for (let step = 0; step < maxNewTokens; step++) {
+      const totalLength = promptIds.length + generated.length;
+      const inputs: Record<string, ort.Tensor> = {
+        input_ids: new ort.Tensor(dtype, makeIds(current), [1, current.length]),
+        attention_mask: new ort.Tensor(dtype, makeIds(new Array(totalLength).fill(1)), [1, totalLength]),
+      };
+
+      if (this._inputNames.includes('position_ids')) {
+        const offset = totalLength - current.length;
+        inputs.position_ids = new ort.Tensor(
+          dtype,
+          makeIds(current.map((_, i) => offset + i)),
+          [1, current.length]
+        );
+      }
+
+      for (const [name, tensor] of Object.entries(past)) {
+        if (this._inputNames.includes(name)) inputs[name] = tensor;
+      }
+
+      const results = await this.session.run(inputs);
+      const logits = this.findLogits(results);
+      const next = this.pickNextToken(logits, temperature, topK);
+      generated.push(next);
+
+      if (eosTokenId !== undefined && next === eosTokenId) break;
+
+      const nextPast: Record<string, ort.Tensor> = {};
+      for (const outputName of this._outputNames) {
+        const inputName = EdgeInfer.pastInputName(outputName);
+        if (inputName && this._inputNames.includes(inputName) && results[outputName]) {
+          nextPast[inputName] = results[outputName];
+        }
+      }
+
+      if (Object.keys(nextPast).length > 0) {
+        past = nextPast;
+        current = [next];
+      } else {
+        past = {};
+        current = [...promptIds, ...generated];
+      }
+    }
+
+    return {
+      text: tokenizer.decode(generated),
+      tokenIds: generated,
+    };
+  }
+
+  /** Pick the last-token logits from the first output that looks like logits. */
+  private findLogits(results: ort.InferenceSession.ReturnType): ort.Tensor {
+    const exact = results['logits'];
+    if (exact) return exact;
+    for (const name of Object.keys(results)) {
+      if (name.toLowerCase().includes('logits')) return results[name];
+    }
+    return results[this._outputNames[0]];
+  }
+
+  /** Argmax (temperature 0) or temperature/top-k sampling over last-token logits. */
+  private pickNextToken(logits: ort.Tensor, temperature: number, topK: number): number {
+    const dims = logits.dims;
+    const vocabSize = dims[dims.length - 1];
+    const seqLen = dims.length >= 3 ? dims[dims.length - 2] : 1;
+    const data = logits.data as Float32Array;
+    const offset = Math.max(0, (seqLen - 1) * vocabSize);
+
+    if (temperature <= 0) {
+      let best = 0;
+      let bestValue = -Infinity;
+      for (let i = 0; i < vocabSize; i++) {
+        const value = data[offset + i];
+        if (value > bestValue) {
+          bestValue = value;
+          best = i;
+        }
+      }
+      return best;
+    }
+
+    const scaled = new Float32Array(vocabSize);
+    let maxLogit = -Infinity;
+    for (let i = 0; i < vocabSize; i++) {
+      scaled[i] = data[offset + i] / temperature;
+      if (scaled[i] > maxLogit) maxLogit = scaled[i];
+    }
+
+    const candidates: Array<{ id: number; prob: number }> = [];
+    let sum = 0;
+    for (let i = 0; i < vocabSize; i++) {
+      const prob = Math.exp(scaled[i] - maxLogit);
+      candidates.push({ id: i, prob });
+      sum += prob;
+    }
+
+    if (topK > 0 && topK < candidates.length) {
+      candidates.sort((a, b) => b.prob - a.prob);
+      candidates.length = topK;
+      sum = candidates.reduce((acc, c) => acc + c.prob, 0);
+    }
+
+    let sample = Math.random() * sum;
+    for (const candidate of candidates) {
+      sample -= candidate.prob;
+      if (sample <= 0) return candidate.id;
+    }
+    return candidates[candidates.length - 1].id;
+  }
+
+  private static pastInputName(outputName: string): string | null {
+    if (!outputName.startsWith('present')) return null;
+    return outputName.replace(/^present/, 'past_key_values');
+  }
+
+  private useInt64Inputs(): boolean {
+    if (this._int64Inputs) return true;
+    const metadata = (this.session as unknown as {
+      inputMetadata?: Record<string, { type?: string }>;
+    }).inputMetadata;
+    return metadata?.['input_ids']?.type === 'int64';
+  }
+
+  /** Build input_ids/attention_mask tensors in the dtype the model declares. */
+  private textInputs(encoding: EncodingResult): Record<string, Int32Array | BigInt64Array> {
+    const int64 = this.useInt64Inputs();
+    const inputs: Record<string, Int32Array | BigInt64Array> = {
+      input_ids: int64 ? encoding.inputIdsInt64 : encoding.inputIds,
+      attention_mask: int64 ? encoding.attentionMaskInt64 : encoding.attentionMask,
+    };
+
+    if (this._inputNames.includes('token_type_ids')) {
+      inputs['token_type_ids'] = int64
+        ? new BigInt64Array(encoding.inputIds.length)
+        : new Int32Array(encoding.inputIds.length);
+    }
+
+    return inputs;
   }
 
   /**

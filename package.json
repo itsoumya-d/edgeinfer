@@ -56,6 +56,6 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "onnxruntime-web": "^1.17.0"
+    "onnxruntime-web": "^1.21.0"
   }
 }
