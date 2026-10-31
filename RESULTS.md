@@ -89,8 +89,10 @@ measurement of this machine's GPU.
   no WebGPU TTFT/tokens-per-second numbers are claimed.
 - **Paged GPUBuffer-resident KV** requires a custom WebGPU attention kernel;
   the ONNX-runtime wrapper keeps cache tensors at the ORT tensor boundary.
-- **Hugging Face Space / npm publication** require authentication; the repo is
-  MIT and package version is 2.0.0, but it is not published.
+- **npm publication** is submitted but not live: the existing `edgeinfer`
+  `0.0.0-stage` placeholder requires npm staged-release review before 2.0.0 can
+  replace it. The GitHub repo and 106-test suite are the current install path.
+- **Hugging Face Space publication** requires authentication and is not run.
 - **KV-cache pinned buffers**: the `LanguageModel` interface and
   `truncate()` contract support cache-aware adapters; the included
   `OnnxCausalLM` is a correctness-first recompute adapter. A KV-cache ONNX
