@@ -9,6 +9,34 @@ import { ModelOptions, ClassificationResult, Detection } from './types';
 import { Tokenizer, TokenizerConfig, EncodingResult } from './tokenizer';
 import { ImageProcessor } from './image-processor';
 
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException('Generation aborted', 'AbortError');
+  }
+}
+
+function normalizeChatMessages(messages: ChatMessage[]): ChatMessage[] {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    throw new Error('chat requires at least one message');
+  }
+  return messages.map((message, index) => {
+    if (!message || typeof message !== 'object') {
+      throw new Error(`chat message ${index} must be an object`);
+    }
+    if (message.role !== 'system' && message.role !== 'user' && message.role !== 'assistant') {
+      throw new Error(`chat message ${index} has an invalid role`);
+    }
+    if (typeof message.content !== 'string') {
+      throw new Error(`chat message ${index} content must be a string`);
+    }
+    return { role: message.role, content: message.content };
+  });
+}
+
+function defaultChatTemplate(messages: ChatMessage[]): string {
+  return `${messages.map((message) => `<|${message.role}|>${message.content}`).join('\n')}\n<|assistant|>`;
+}
+
 export interface EdgeInferOptions extends ModelOptions, DownloadOptions {
   tokenizerUrl?: string;
   tokenizerConfig?: TokenizerConfig;
@@ -28,11 +56,34 @@ export interface GenerateOptions {
   topK?: number;
   /** Stop token. Defaults to the tokenizer's `</s>` when present. */
   eosTokenId?: number;
+  /** Abort an in-flight stream between decode steps. */
+  signal?: AbortSignal;
 }
 
 export interface GenerationResult {
   text: string;
   tokenIds: number[];
+}
+
+export interface GenerationEvent {
+  tokenId: number;
+  /** Best-effort decoded delta for this token. */
+  text: string;
+  index: number;
+}
+
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+export interface ChatOptions extends GenerateOptions {
+  /** Override the default role-marker template for the target model. */
+  chatTemplate?: (messages: ChatMessage[]) => string;
+}
+
+export interface ChatResult extends GenerationResult {
+  prompt: string;
 }
 
 /**
@@ -209,6 +260,26 @@ export class EdgeInfer {
    */
   async generate(prompt: string, options: GenerateOptions = {}): Promise<GenerationResult> {
     this.requireTokenizer();
+    const tokenIds: number[] = [];
+    for await (const event of this.generateStream(prompt, options)) {
+      tokenIds.push(event.tokenId);
+    }
+    return {
+      text: this.tokenizer!.decode(tokenIds),
+      tokenIds,
+    };
+  }
+
+  /**
+   * Stream generated tokens. The decoder loop is identical to generate(), but
+   * each token is yielded as soon as it is chosen so a UI can paint before the
+   * full completion finishes.
+   */
+  async *generateStream(
+    prompt: string,
+    options: GenerateOptions = {}
+  ): AsyncGenerator<GenerationEvent, void, unknown> {
+    this.requireTokenizer();
 
     const maxNewTokens = Math.max(0, options.maxNewTokens ?? 64);
     const temperature = options.temperature ?? 0;
@@ -233,6 +304,7 @@ export class EdgeInfer {
     const generated: number[] = [];
 
     for (let step = 0; step < maxNewTokens; step++) {
+      throwIfAborted(options.signal);
       const totalLength = promptIds.length + generated.length;
       const inputs: Record<string, ort.Tensor> = {
         input_ids: new ort.Tensor(dtype, makeIds(current), [1, current.length]),
@@ -256,6 +328,11 @@ export class EdgeInfer {
       const logits = this.findLogits(results);
       const next = this.pickNextToken(logits, temperature, topK);
       generated.push(next);
+      yield {
+        tokenId: next,
+        text: tokenizer.decode([next]),
+        index: generated.length - 1,
+      };
 
       if (eosTokenId !== undefined && next === eosTokenId) break;
 
@@ -275,10 +352,35 @@ export class EdgeInfer {
         current = [...promptIds, ...generated];
       }
     }
+  }
 
+  /**
+   * Stream a chat completion using a role-marker template. The default template
+   * is model-agnostic; pass `chatTemplate` to match the target tokenizer.
+   */
+  async *chatStream(
+    messages: ChatMessage[],
+    options: ChatOptions = {}
+  ): AsyncGenerator<GenerationEvent, void, unknown> {
+    this.requireTokenizer();
+    const normalized = normalizeChatMessages(messages);
+    const prompt = (options.chatTemplate ?? defaultChatTemplate)(normalized);
+    yield* this.generateStream(prompt, options);
+  }
+
+  /** Collect a chat completion. */
+  async chat(messages: ChatMessage[], options: ChatOptions = {}): Promise<ChatResult> {
+    this.requireTokenizer();
+    const normalized = normalizeChatMessages(messages);
+    const prompt = (options.chatTemplate ?? defaultChatTemplate)(normalized);
+    const tokenIds: number[] = [];
+    for await (const event of this.generateStream(prompt, options)) {
+      tokenIds.push(event.tokenId);
+    }
     return {
-      text: tokenizer.decode(generated),
-      tokenIds: generated,
+      text: this.tokenizer!.decode(tokenIds),
+      tokenIds,
+      prompt,
     };
   }
 

@@ -7,14 +7,14 @@
 | Date | 2026-10-31 |
 | OS | macOS (Apple Silicon) |
 | Node | 26.3.0 |
-| Tests | 95/95 passing |
+| Tests | 106/106 passing |
 | License | MIT |
 | Version | 2.0.0 |
 
 ## Test coverage
 
-`npm test` covers the existing 78 tokenizer/ONNX/KV-cache/download tests plus
-17 new tests:
+`npm test` covers the existing tokenizer/ONNX/KV-cache/download tests plus the
+v2 additions:
 
 - INT8 quantization and Matryoshka truncation/normalization,
 - two-stage search versus exact full search,
@@ -22,7 +22,10 @@
 - IndexedDB persistence (build → persist → reload → search),
 - speculative accept/reject/bonus/EOS paths,
 - residual resampling and state truncation,
-- the ONNX causal-LM adapter's interface contract.
+- the ONNX causal-LM adapter's interface contract,
+- streaming `generateStream()` token events and abort handling,
+- `chat()` / `chatStream()` prompt templating and validation,
+- empirical `probeVRAM()` binary search and `detectCapabilities()` integration.
 
 ## Matryoshka synthetic benchmark
 
@@ -69,12 +72,23 @@ The speedup is computed analytically from the call counts and the configured
 mock forward latencies (draft 0.2 ms, target 2.0 ms). It is **not** a measured
 WebGPU tokens/sec or TTFT result.
 
+## WebGPU probe (unit-level)
+
+`RuntimeManager.probeVRAM()` is tested with a mocked adapter that allocates up to
+100 MiB. The binary search returns 100 MiB at 4 MiB resolution, and a real
+adapter's `detectCapabilities()` records the same probe value instead of the
+256 MiB / 128 MiB adapter baselines. These are deterministic mock results, not a
+measurement of this machine's GPU.
+
 ## Not executed
 
 - **MTEB retrieval** requires an embedding model and MTEB data; no HF/API
   credentials were configured.
-- **Playwright headless WebGPU** benchmarks require a browser with WebGPU and
-  downloaded draft/target ONNX models; not available in this environment.
+- **Playwright WebGPU** benchmarks: Chromium in this environment exposes no
+  `navigator.gpu` in either headless or headed mode with the available flags, so
+  no WebGPU TTFT/tokens-per-second numbers are claimed.
+- **Paged GPUBuffer-resident KV** requires a custom WebGPU attention kernel;
+  the ONNX-runtime wrapper keeps cache tensors at the ORT tensor boundary.
 - **Hugging Face Space / npm publication** require authentication; the repo is
   MIT and package version is 2.0.0, but it is not published.
 - **KV-cache pinned buffers**: the `LanguageModel` interface and

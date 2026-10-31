@@ -153,6 +153,8 @@ var _RuntimeManager = class _RuntimeManager {
       hasWebGPU: false,
       hasWebNN: false,
       estimatedVRAM: 0,
+      adapterLimits: null,
+      vramProbe: null,
       recommendedQuantization: "int8"
     };
     if (typeof navigator !== "undefined" && "gpu" in navigator) {
@@ -167,11 +169,17 @@ var _RuntimeManager = class _RuntimeManager {
           capabilities.provider = "webgpu";
           const maxBufferSize = adapter.limits?.maxBufferSize || 0;
           const maxStorageSize = adapter.limits?.maxStorageBufferBindingSize || 0;
-          capabilities.estimatedVRAM = Math.max(maxBufferSize, maxStorageSize);
+          capabilities.adapterLimits = {
+            maxBufferSize,
+            maxStorageBufferBindingSize: maxStorageSize
+          };
+          const probe = await _RuntimeManager.probeVRAM(adapter);
+          capabilities.vramProbe = probe;
+          capabilities.estimatedVRAM = probe.available ? probe.maxAllocationBytes : Math.max(maxBufferSize, maxStorageSize);
           const vramGB = capabilities.estimatedVRAM / (1024 * 1024 * 1024);
-          if (vramGB >= 8) {
+          if (vramGB >= 4) {
             capabilities.recommendedQuantization = "fp16";
-          } else if (vramGB >= 4) {
+          } else if (vramGB >= 1) {
             capabilities.recommendedQuantization = "int8";
           } else {
             capabilities.recommendedQuantization = "int4";
@@ -236,6 +244,104 @@ var _RuntimeManager = class _RuntimeManager {
       graphOptimizationLevel: "all"
     });
     return { session, provider: "wasm" };
+  }
+  /**
+   * Empirically probe the largest single storage buffer the adapter's device
+   * will allocate. Allocates and destroys one buffer at a time; never relies on
+   * `maxBufferSize` as if it were physical VRAM.
+   */
+  static async probeVRAM(adapter, options = {}) {
+    const limits = {
+      maxBufferSize: Number(adapter?.limits?.maxBufferSize) || 0,
+      maxStorageBufferBindingSize: Number(adapter?.limits?.maxStorageBufferBindingSize) || 0
+    };
+    const unavailable = {
+      available: false,
+      maxAllocationBytes: 0,
+      testedAllocations: [],
+      failedAllocationBytes: null,
+      adapterLimits: limits,
+      deviceCreated: false,
+      probe: "unavailable"
+    };
+    if (!adapter || typeof adapter.requestDevice !== "function") return unavailable;
+    let device;
+    try {
+      device = await adapter.requestDevice();
+    } catch {
+      return unavailable;
+    }
+    if (!device || typeof device.createBuffer !== "function") {
+      return { ...unavailable, deviceCreated: Boolean(device) };
+    }
+    const MIB = 1024 * 1024;
+    const start = Math.max(1, options.startBytes ?? 64 * MIB);
+    const configuredMax = Math.max(start, options.maxBytes ?? 4 * 1024 * MIB);
+    const max = limits.maxBufferSize > 0 ? Math.min(configuredMax, limits.maxBufferSize) : configuredMax;
+    const step = Math.max(1, options.stepBytes ?? 32 * MIB);
+    const tested = [];
+    const STORAGE = 128;
+    const COPY_DST = 8;
+    const attempt = (size2) => {
+      tested.push(size2);
+      try {
+        const buffer = device.createBuffer({ size: size2, usage: STORAGE | COPY_DST });
+        buffer?.destroy?.();
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    let low = 0;
+    let high = 0;
+    let size = Math.min(start, max);
+    while (size >= 1) {
+      if (attempt(size)) {
+        low = size;
+        break;
+      }
+      high = size;
+      if (size === 1) break;
+      size = Math.max(1, Math.floor(size / 2));
+    }
+    if (low === 0) {
+      device.destroy?.();
+      return {
+        ...unavailable,
+        testedAllocations: tested,
+        failedAllocationBytes: high || null,
+        deviceCreated: true,
+        probe: "limits"
+      };
+    }
+    let next = Math.min(max, low * 2);
+    while (next > low && tested.length < 16) {
+      if (attempt(next)) {
+        low = next;
+        next = Math.min(max, low * 2);
+        if (low === max) break;
+      } else {
+        high = next;
+        break;
+      }
+    }
+    if (high === 0) high = Math.min(max, low * 2);
+    while (high - low > step && tested.length < 24) {
+      const mid = Math.floor((low + high) / 2);
+      if (mid <= low || mid >= high) break;
+      if (attempt(mid)) low = mid;
+      else high = mid;
+    }
+    device.destroy?.();
+    return {
+      available: true,
+      maxAllocationBytes: low,
+      testedAllocations: tested,
+      failedAllocationBytes: high > low ? high : null,
+      adapterLimits: limits,
+      deviceCreated: true,
+      probe: "empirical"
+    };
   }
   /**
    * Resolve `promise`, or resolve to `null` if it has not settled within `ms`.
@@ -587,6 +693,32 @@ var ImageProcessor = class {
 
 // src/edgeinfer.ts
 var ort2 = __toESM(require("onnxruntime-web"));
+function throwIfAborted(signal) {
+  if (signal?.aborted) {
+    throw signal.reason ?? new DOMException("Generation aborted", "AbortError");
+  }
+}
+function normalizeChatMessages(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    throw new Error("chat requires at least one message");
+  }
+  return messages.map((message, index) => {
+    if (!message || typeof message !== "object") {
+      throw new Error(`chat message ${index} must be an object`);
+    }
+    if (message.role !== "system" && message.role !== "user" && message.role !== "assistant") {
+      throw new Error(`chat message ${index} has an invalid role`);
+    }
+    if (typeof message.content !== "string") {
+      throw new Error(`chat message ${index} content must be a string`);
+    }
+    return { role: message.role, content: message.content };
+  });
+}
+function defaultChatTemplate(messages) {
+  return `${messages.map((message) => `<|${message.role}|>${message.content}`).join("\n")}
+<|assistant|>`;
+}
 var EdgeInfer = class _EdgeInfer {
   constructor(session, modelSize, provider, int64Inputs, tokenizer) {
     this.tokenizer = null;
@@ -711,6 +843,22 @@ var EdgeInfer = class _EdgeInfer {
    */
   async generate(prompt, options = {}) {
     this.requireTokenizer();
+    const tokenIds = [];
+    for await (const event of this.generateStream(prompt, options)) {
+      tokenIds.push(event.tokenId);
+    }
+    return {
+      text: this.tokenizer.decode(tokenIds),
+      tokenIds
+    };
+  }
+  /**
+   * Stream generated tokens. The decoder loop is identical to generate(), but
+   * each token is yielded as soon as it is chosen so a UI can paint before the
+   * full completion finishes.
+   */
+  async *generateStream(prompt, options = {}) {
+    this.requireTokenizer();
     const maxNewTokens = Math.max(0, options.maxNewTokens ?? 64);
     const temperature = options.temperature ?? 0;
     const topK = options.topK ?? 0;
@@ -725,6 +873,7 @@ var EdgeInfer = class _EdgeInfer {
     let past = {};
     const generated = [];
     for (let step = 0; step < maxNewTokens; step++) {
+      throwIfAborted(options.signal);
       const totalLength = promptIds.length + generated.length;
       const inputs = {
         input_ids: new ort2.Tensor(dtype, makeIds(current), [1, current.length]),
@@ -745,6 +894,11 @@ var EdgeInfer = class _EdgeInfer {
       const logits = this.findLogits(results);
       const next = this.pickNextToken(logits, temperature, topK);
       generated.push(next);
+      yield {
+        tokenId: next,
+        text: tokenizer.decode([next]),
+        index: generated.length - 1
+      };
       if (eosTokenId !== void 0 && next === eosTokenId) break;
       const nextPast = {};
       for (const outputName of this._outputNames) {
@@ -761,9 +915,30 @@ var EdgeInfer = class _EdgeInfer {
         current = [...promptIds, ...generated];
       }
     }
+  }
+  /**
+   * Stream a chat completion using a role-marker template. The default template
+   * is model-agnostic; pass `chatTemplate` to match the target tokenizer.
+   */
+  async *chatStream(messages, options = {}) {
+    this.requireTokenizer();
+    const normalized = normalizeChatMessages(messages);
+    const prompt = (options.chatTemplate ?? defaultChatTemplate)(normalized);
+    yield* this.generateStream(prompt, options);
+  }
+  /** Collect a chat completion. */
+  async chat(messages, options = {}) {
+    this.requireTokenizer();
+    const normalized = normalizeChatMessages(messages);
+    const prompt = (options.chatTemplate ?? defaultChatTemplate)(normalized);
+    const tokenIds = [];
+    for await (const event of this.generateStream(prompt, options)) {
+      tokenIds.push(event.tokenId);
+    }
     return {
-      text: tokenizer.decode(generated),
-      tokenIds: generated
+      text: this.tokenizer.decode(tokenIds),
+      tokenIds,
+      prompt
     };
   }
   /** Pick the last-token logits from the first output that looks like logits. */
