@@ -208,7 +208,6 @@ declare class ImageProcessor {
 }
 
 interface EdgeInferOptions extends ModelOptions, DownloadOptions {
-    licenseKey?: string;
     tokenizerUrl?: string;
     tokenizerConfig?: TokenizerConfig;
     /**

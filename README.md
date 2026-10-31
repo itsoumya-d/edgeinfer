@@ -1,8 +1,6 @@
 <!--
-// Copyright (c) 2024-2026 Soumya Debnath. All Rights Reserved.
-// Dual-licensed: AGPL-3.0-or-later (free, see LICENSE) OR a commercial licence
-// (see COMMERCIAL_LICENSE.md) if you cannot meet the AGPL's source-disclosure terms.
-// Contact: soumyadebnath1619@gmail.com
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2024-2026 Soumya Debnath
 -->
 
 # EdgeInfer
@@ -10,7 +8,7 @@
 <div align="center">
   <p><strong>EdgeInfer runs small ONNX models inside the browser on WebGPU or WebAssembly, so inference costs nothing per call and user data never leaves the device.</strong></p>
 
-  [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
   [![Status](https://img.shields.io/badge/status-pre--release-orange.svg)]()
 </div>
 
@@ -257,17 +255,10 @@ session).
 
 ## 📄 License
 
-**Dual-licensed — choose either:**
+**[MIT](LICENSE)** — free to use, copy, modify, merge, publish, distribute, sublicense, and sell,
+including in commercial and closed-source products. Keep the copyright and permission notice.
 
-1. **[AGPL-3.0-or-later](LICENSE)** — free for any purpose, including commercial and production
-   use. No payment, no permission, no key required. The obligation it carries: if you modify this
-   software and let users interact with it over a network, you must offer those users your modified
-   source under the same licence.
-
-2. **[Commercial licence](COMMERCIAL_LICENSE.md)** — for organisations that cannot or prefer not to
-   meet the AGPL's source-disclosure obligation. This buys an exception, not access.
-
-Contributions are accepted under AGPL-3.0-or-later. Full terms: [LICENSING.md](LICENSING.md).
+Contributions are accepted under the MIT License.
 
 
 ### Bounded downloads and tokenizer casing

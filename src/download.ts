@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2024-2026 Soumya Debnath
+
 /** Per-transfer options; covers response headers and the entire response body. */
 export interface DownloadOptions {
   signal?: AbortSignal;

@@ -1,8 +1,7 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2024-2026 Soumya Debnath
+
 import { withDownloadDeadline, DownloadOptions } from './download';
-// Copyright (c) 2024-2026 Soumya Debnath. All Rights Reserved.
-// Licensed under the Business Source License 1.1 (BSL 1.1).
-// See LICENSE file for details. Production use requires a paid license.
-// Contact: soumyadebnath1619@gmail.com
 
 export interface TokenizerConfig {
   vocab: Record<string, number>;

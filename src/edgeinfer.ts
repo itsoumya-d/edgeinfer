@@ -1,9 +1,6 @@
-// Copyright (c) 2024-2026 Soumya Debnath. All Rights Reserved.
-// Licensed under the Business Source License 1.1 (BSL 1.1).
-// See LICENSE file for details. Production use requires a paid license.
-// Contact: soumyadebnath1619@gmail.com
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2024-2026 Soumya Debnath
 
-import { LicenseValidator } from './license-validator';
 import * as ort from 'onnxruntime-web';
 import { ModelCache } from './model-cache';
 import { DownloadOptions, checkDownloadAbort } from './download';
@@ -13,7 +10,6 @@ import { Tokenizer, TokenizerConfig, EncodingResult } from './tokenizer';
 import { ImageProcessor } from './image-processor';
 
 export interface EdgeInferOptions extends ModelOptions, DownloadOptions {
-  licenseKey?: string;
   tokenizerUrl?: string;
   tokenizerConfig?: TokenizerConfig;
   /**
@@ -76,10 +72,6 @@ export class EdgeInfer {
    * Load a model from URL with automatic caching and optimal provider selection.
    */
   static async load(modelUrl: string, options?: EdgeInferOptions): Promise<EdgeInfer> {
-    if (options?.licenseKey) {
-      LicenseValidator.validate(options);
-    }
-
     const cache = new ModelCache(options?.cacheName);
     const buffer = await cache.getModel(modelUrl, options?.forceDownload, options);
     return EdgeInfer.fromBuffer(buffer, options);

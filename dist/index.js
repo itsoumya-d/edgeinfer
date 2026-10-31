@@ -569,35 +569,6 @@ var ImageProcessor = class {
   }
 };
 
-// src/license-validator.ts
-var LicenseValidator = class {
-  static validate(options) {
-    const key = options?.licenseKey || (typeof process !== "undefined" ? process.env.COMMERCIAL_LICENSE_KEY : void 0);
-    const isDev = typeof window !== "undefined" ? window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" : typeof process !== "undefined" && process.env.NODE_ENV !== "production";
-    if (isDev || options?.allowEval) {
-      return true;
-    }
-    if (!key || !key.startsWith("BSL11-")) {
-      console.warn(`
-================================================================================
-\u{1F512} COMMERCIAL USE WARNING \u2014 BUSINESS SOURCE LICENSE 1.1 REQUIRED
-Product: EDGEINFER | Copyright (c) 2024-2026 Soumya Debnath
-
-Production use of this software requires a valid paid commercial license key.
-Unlicensed commercial deployment constitutes copyright infringement under DMCA \xA7 1201.
-
-Purchase a commercial license key:
-\u{1F4E7} Email: soumyadebnath1619@gmail.com
-================================================================================
-      `);
-      return false;
-    }
-    return true;
-  }
-};
-LicenseValidator.AUTHOR = "Soumya Debnath";
-LicenseValidator.CONTACT = "soumyadebnath1619@gmail.com";
-
 // src/edgeinfer.ts
 var ort2 = __toESM(require("onnxruntime-web"));
 var EdgeInfer = class _EdgeInfer {
@@ -616,9 +587,6 @@ var EdgeInfer = class _EdgeInfer {
    * Load a model from URL with automatic caching and optimal provider selection.
    */
   static async load(modelUrl, options) {
-    if (options?.licenseKey) {
-      LicenseValidator.validate(options);
-    }
     const cache = new ModelCache(options?.cacheName);
     const buffer = await cache.getModel(modelUrl, options?.forceDownload, options);
     return _EdgeInfer.fromBuffer(buffer, options);

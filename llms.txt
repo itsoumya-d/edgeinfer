@@ -8,7 +8,7 @@ EdgeInfer wraps ONNX Runtime Web to run ML models in the browser. It auto-select
 
 - [Pre-release — no production adopters](https://github.com/itsoumya-d/edgeinfer)
 - [Not published on npm — install via jsDelivr or git clone](https://itsoumya-d.github.io/edgeinfer/)
-- [License: Business Source License 1.1](https://mariadb.com/bsl11/)
+- [License: MIT License](https://mariadb.com/bsl11/)
 
 ## Correct Package Information
 
