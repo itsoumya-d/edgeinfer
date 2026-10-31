@@ -221,7 +221,6 @@ var RuntimeManager = _RuntimeManager;
 // src/tokenizer.ts
 var Tokenizer = class _Tokenizer {
   constructor(config) {
-    this.lowercase = config.lowercase ?? true;
     this.vocab = new Map(Object.entries(config.vocab));
     this.inverseVocab = /* @__PURE__ */ new Map();
     for (const [token, id] of this.vocab) {
@@ -241,6 +240,13 @@ var Tokenizer = class _Tokenizer {
     this.clsTokenId = config.clsTokenId ?? 101;
     this.sepTokenId = config.sepTokenId ?? 102;
     this.bpeCache = /* @__PURE__ */ new Map();
+    this.usesBPE = this.merges.length > 0;
+    this.bpeSpaceMarker = config.bpeSpaceMarker ?? "";
+    this.mergeRanks = /* @__PURE__ */ new Map();
+    this.merges.forEach(([first, second], rank) => {
+      this.mergeRanks.set(`${first} ${second}`, rank);
+    });
+    this.lowercase = config.lowercase ?? !this.usesBPE;
   }
   /**
    * Load tokenizer configuration from a JSON URL (tokenizer.json or vocab.json).
@@ -263,7 +269,7 @@ var Tokenizer = class _Tokenizer {
       }
       return new _Tokenizer({
         vocab: config.model.vocab,
-        lowercase: _Tokenizer.normalizerLowercase(config.normalizer),
+        lowercase: config.normalizer === void 0 ? void 0 : _Tokenizer.normalizerLowercase(config.normalizer),
         merges: config.model.merges || [],
         specialTokens,
         maxLength: config.truncation?.max_length || 512,
@@ -314,7 +320,9 @@ var Tokenizer = class _Tokenizer {
       const fallback = new Int32Array([this.padTokenId]);
       return {
         inputIds: fallback,
-        attentionMask: new Int32Array([0])
+        attentionMask: new Int32Array([0]),
+        inputIdsInt64: _Tokenizer.toInt64(fallback),
+        attentionMaskInt64: new BigInt64Array([0n])
       };
     }
     const attentionMask = new Int32Array(padding ? maxLen : truncated.length);
@@ -324,7 +332,12 @@ var Tokenizer = class _Tokenizer {
     if (padding) {
       inputIds.fill(this.padTokenId, truncated.length);
     }
-    return { inputIds, attentionMask };
+    return {
+      inputIds,
+      attentionMask,
+      inputIdsInt64: _Tokenizer.toInt64(inputIds),
+      attentionMaskInt64: _Tokenizer.toInt64(attentionMask)
+    };
   }
   /**
    * Decode token IDs back to text.
@@ -343,6 +356,8 @@ var Tokenizer = class _Tokenizer {
         } else {
           words.push(token.slice(2));
         }
+      } else if (token.startsWith("\u2581") || token.startsWith("\u0120")) {
+        words.push(token.slice(1));
       } else {
         words.push(token);
       }
@@ -354,6 +369,13 @@ var Tokenizer = class _Tokenizer {
    */
   get vocabSize() {
     return this.vocab.size;
+  }
+  /**
+   * Resolve a special token (e.g. `</s>`, `<|endoftext|>`) to its ID, whether it
+   * was declared in `specialTokens` or is present in the main vocabulary.
+   */
+  getSpecialTokenId(token) {
+    return this.specialTokens.get(token) ?? this.vocab.get(token);
   }
   /**
    * Pre-tokenize text: lowercase, split on whitespace and punctuation boundaries.
@@ -379,9 +401,11 @@ var Tokenizer = class _Tokenizer {
     return tokens;
   }
   /**
-   * Tokenize a single word using WordPiece algorithm.
+   * Tokenize a single word using the tokenizer's model type: BPE when a merge
+   * table is present, WordPiece otherwise.
    */
   tokenizeWord(word) {
+    if (this.usesBPE) return this.tokenizeWordBPE(word);
     if (this.vocab.has(word)) {
       return [this.vocab.get(word)];
     }
@@ -412,43 +436,67 @@ var Tokenizer = class _Tokenizer {
     return tokens;
   }
   /**
-   * Apply BPE merges to a word (for BPE-style tokenizers like GPT-2).
+   * Apply the merge table to a word, then map the resulting pieces to IDs.
+   * Unknown pieces fall back to the unknown token rather than throwing, which
+   * matches ONNX Runtime's text-tokenizer behaviour.
+   */
+  tokenizeWordBPE(word) {
+    const whole = this.vocab.get(
+      this.bpeSpaceMarker ? this.bpeSpaceMarker + word : word
+    );
+    if (whole !== void 0) return [whole];
+    const pieces = this.applyBPE(word);
+    const ids = [];
+    for (let i = 0; i < pieces.length; i++) {
+      const piece = i === 0 && this.bpeSpaceMarker ? this.bpeSpaceMarker + pieces[i] : pieces[i];
+      const id = this.vocab.get(piece);
+      if (id !== void 0) {
+        ids.push(id);
+        continue;
+      }
+      ids.push(this.unkTokenId);
+    }
+    return ids;
+  }
+  /**
+   * Apply BPE merges to a word (for BPE-style tokenizers like GPT-2/Llama).
+   * Merge rules are applied in ascending rank order until no adjacent pair is
+   * present in the merge table; caching is keyed on the original word.
    */
   applyBPE(word) {
     const cached = this.bpeCache.get(word);
     if (cached) return cached;
-    let pairs = this.getCharPairs(word.split(""));
-    if (pairs.length === 0) return [word];
     let tokens = word.split("");
-    for (const [first, second] of this.merges) {
-      const newTokens = [];
-      let i = 0;
-      while (i < tokens.length) {
-        const j = tokens.indexOf(first, i);
-        if (j === -1) {
-          newTokens.push(...tokens.slice(i));
-          break;
-        }
-        newTokens.push(...tokens.slice(i, j));
-        if (j < tokens.length - 1 && tokens[j + 1] === second) {
-          newTokens.push(first + second);
-          i = j + 2;
+    if (tokens.length <= 1 || this.mergeRanks.size === 0) {
+      this.bpeCache.set(word, tokens);
+      return tokens;
+    }
+    while (tokens.length > 1) {
+      let bestRank = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < tokens.length - 1; i++) {
+        const rank = this.mergeRanks.get(`${tokens[i]} ${tokens[i + 1]}`);
+        if (rank !== void 0 && rank < bestRank) bestRank = rank;
+      }
+      if (bestRank === Number.POSITIVE_INFINITY) break;
+      const merged = [];
+      for (let i = 0; i < tokens.length; i++) {
+        if (i < tokens.length - 1 && this.mergeRanks.get(`${tokens[i]} ${tokens[i + 1]}`) === bestRank) {
+          merged.push(tokens[i] + tokens[i + 1]);
+          i++;
         } else {
-          newTokens.push(tokens[j]);
-          i = j + 1;
+          merged.push(tokens[i]);
         }
       }
-      tokens = newTokens;
+      if (merged.length === tokens.length) break;
+      tokens = merged;
     }
     this.bpeCache.set(word, tokens);
     return tokens;
   }
-  getCharPairs(chars) {
-    const pairs = [];
-    for (let i = 0; i < chars.length - 1; i++) {
-      pairs.push([chars[i], chars[i + 1]]);
-    }
-    return pairs;
+  static toInt64(values) {
+    const out = new BigInt64Array(values.length);
+    for (let i = 0; i < values.length; i++) out[i] = BigInt(values[i]);
+    return out;
   }
 };
 
@@ -512,7 +560,7 @@ LicenseValidator.CONTACT = "soumyadebnath1619@gmail.com";
 // src/edgeinfer.ts
 import * as ort2 from "onnxruntime-web";
 var EdgeInfer = class _EdgeInfer {
-  constructor(session, modelSize, provider, tokenizer) {
+  constructor(session, modelSize, provider, int64Inputs, tokenizer) {
     this.tokenizer = null;
     this._provider = "wasm";
     this.session = session;
@@ -520,6 +568,7 @@ var EdgeInfer = class _EdgeInfer {
     this._outputNames = session.outputNames;
     this._modelSize = modelSize;
     this._provider = provider;
+    this._int64Inputs = int64Inputs;
     this.tokenizer = tokenizer || null;
   }
   /**
@@ -551,7 +600,7 @@ var EdgeInfer = class _EdgeInfer {
         tokenizer = new Tokenizer(options.tokenizerConfig);
       }
       checkDownloadAbort(options?.signal);
-      return new _EdgeInfer(session, buffer.byteLength, provider, tokenizer);
+      return new _EdgeInfer(session, buffer.byteLength, provider, options?.int64Inputs ?? false, tokenizer);
     } catch (error) {
       try {
         await session.release();
@@ -592,13 +641,7 @@ var EdgeInfer = class _EdgeInfer {
   async classify(text) {
     this.requireTokenizer();
     const encoding = this.tokenizer.encode(text, { addSpecialTokens: true });
-    const inputs = {
-      "input_ids": encoding.inputIds,
-      "attention_mask": encoding.attentionMask
-    };
-    if (this._inputNames.includes("token_type_ids")) {
-      inputs["token_type_ids"] = new Int32Array(encoding.inputIds.length);
-    }
+    const inputs = this.textInputs(encoding);
     const result = await this.predict(inputs);
     const output = result[this._outputNames[0]];
     if (!output) return [];
@@ -615,13 +658,7 @@ var EdgeInfer = class _EdgeInfer {
   async embed(text) {
     this.requireTokenizer();
     const encoding = this.tokenizer.encode(text, { addSpecialTokens: true });
-    const inputs = {
-      "input_ids": encoding.inputIds,
-      "attention_mask": encoding.attentionMask
-    };
-    if (this._inputNames.includes("token_type_ids")) {
-      inputs["token_type_ids"] = new Int32Array(encoding.inputIds.length);
-    }
+    const inputs = this.textInputs(encoding);
     const result = await this.runInference(inputs);
     const output = result[this._outputNames[0]];
     if (!output) return new Float32Array();
@@ -639,6 +676,144 @@ var EdgeInfer = class _EdgeInfer {
     if (dimension >= fullEmbedding.length) return fullEmbedding;
     const truncated = fullEmbedding.slice(0, dimension);
     return this.l2Normalize(truncated);
+  }
+  /**
+   * Greedy or temperature-sampled autoregressive generation.
+   *
+   * Decoder models that expose `present.*` outputs and `past_key_values.*`
+   * inputs reuse those tensors across steps (KV-cache). Models without cache
+   * inputs are re-run over the full sequence each step.
+   */
+  async generate(prompt, options = {}) {
+    this.requireTokenizer();
+    const maxNewTokens = Math.max(0, options.maxNewTokens ?? 64);
+    const temperature = options.temperature ?? 0;
+    const topK = options.topK ?? 0;
+    const tokenizer = this.tokenizer;
+    const eosTokenId = options.eosTokenId ?? tokenizer.getSpecialTokenId("</s>") ?? tokenizer.getSpecialTokenId("<|endoftext|>");
+    const encoding = tokenizer.encode(prompt, { addSpecialTokens: true });
+    const promptIds = Array.from(encoding.inputIds);
+    const int64 = this.useInt64Inputs();
+    const makeIds = (values) => int64 ? BigInt64Array.from(values, (v) => BigInt(v)) : Int32Array.from(values);
+    const dtype = int64 ? "int64" : "int32";
+    let current = promptIds;
+    let past = {};
+    const generated = [];
+    for (let step = 0; step < maxNewTokens; step++) {
+      const totalLength = promptIds.length + generated.length;
+      const inputs = {
+        input_ids: new ort2.Tensor(dtype, makeIds(current), [1, current.length]),
+        attention_mask: new ort2.Tensor(dtype, makeIds(new Array(totalLength).fill(1)), [1, totalLength])
+      };
+      if (this._inputNames.includes("position_ids")) {
+        const offset = totalLength - current.length;
+        inputs.position_ids = new ort2.Tensor(
+          dtype,
+          makeIds(current.map((_, i) => offset + i)),
+          [1, current.length]
+        );
+      }
+      for (const [name, tensor] of Object.entries(past)) {
+        if (this._inputNames.includes(name)) inputs[name] = tensor;
+      }
+      const results = await this.session.run(inputs);
+      const logits = this.findLogits(results);
+      const next = this.pickNextToken(logits, temperature, topK);
+      generated.push(next);
+      if (eosTokenId !== void 0 && next === eosTokenId) break;
+      const nextPast = {};
+      for (const outputName of this._outputNames) {
+        const inputName = _EdgeInfer.pastInputName(outputName);
+        if (inputName && this._inputNames.includes(inputName) && results[outputName]) {
+          nextPast[inputName] = results[outputName];
+        }
+      }
+      if (Object.keys(nextPast).length > 0) {
+        past = nextPast;
+        current = [next];
+      } else {
+        past = {};
+        current = [...promptIds, ...generated];
+      }
+    }
+    return {
+      text: tokenizer.decode(generated),
+      tokenIds: generated
+    };
+  }
+  /** Pick the last-token logits from the first output that looks like logits. */
+  findLogits(results) {
+    const exact = results["logits"];
+    if (exact) return exact;
+    for (const name of Object.keys(results)) {
+      if (name.toLowerCase().includes("logits")) return results[name];
+    }
+    return results[this._outputNames[0]];
+  }
+  /** Argmax (temperature 0) or temperature/top-k sampling over last-token logits. */
+  pickNextToken(logits, temperature, topK) {
+    const dims = logits.dims;
+    const vocabSize = dims[dims.length - 1];
+    const seqLen = dims.length >= 3 ? dims[dims.length - 2] : 1;
+    const data = logits.data;
+    const offset = Math.max(0, (seqLen - 1) * vocabSize);
+    if (temperature <= 0) {
+      let best = 0;
+      let bestValue = -Infinity;
+      for (let i = 0; i < vocabSize; i++) {
+        const value = data[offset + i];
+        if (value > bestValue) {
+          bestValue = value;
+          best = i;
+        }
+      }
+      return best;
+    }
+    const scaled = new Float32Array(vocabSize);
+    let maxLogit = -Infinity;
+    for (let i = 0; i < vocabSize; i++) {
+      scaled[i] = data[offset + i] / temperature;
+      if (scaled[i] > maxLogit) maxLogit = scaled[i];
+    }
+    const candidates = [];
+    let sum = 0;
+    for (let i = 0; i < vocabSize; i++) {
+      const prob = Math.exp(scaled[i] - maxLogit);
+      candidates.push({ id: i, prob });
+      sum += prob;
+    }
+    if (topK > 0 && topK < candidates.length) {
+      candidates.sort((a, b) => b.prob - a.prob);
+      candidates.length = topK;
+      sum = candidates.reduce((acc, c) => acc + c.prob, 0);
+    }
+    let sample = Math.random() * sum;
+    for (const candidate of candidates) {
+      sample -= candidate.prob;
+      if (sample <= 0) return candidate.id;
+    }
+    return candidates[candidates.length - 1].id;
+  }
+  static pastInputName(outputName) {
+    if (!outputName.startsWith("present")) return null;
+    return outputName.replace(/^present/, "past_key_values");
+  }
+  useInt64Inputs() {
+    if (this._int64Inputs) return true;
+    const metadata = this.session.inputMetadata;
+    return metadata?.["input_ids"]?.type === "int64";
+  }
+  /** Build input_ids/attention_mask tensors in the dtype the model declares. */
+  textInputs(encoding) {
+    const int64 = this.useInt64Inputs();
+    const inputs = {
+      input_ids: int64 ? encoding.inputIdsInt64 : encoding.inputIds,
+      attention_mask: int64 ? encoding.attentionMaskInt64 : encoding.attentionMask
+    };
+    if (this._inputNames.includes("token_type_ids")) {
+      inputs["token_type_ids"] = int64 ? new BigInt64Array(encoding.inputIds.length) : new Int32Array(encoding.inputIds.length);
+    }
+    return inputs;
   }
   /**
    * Sentiment analysis.

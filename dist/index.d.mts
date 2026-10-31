@@ -101,8 +101,9 @@ interface TokenizerConfig {
     lowercase?: boolean;
     /**
      * BPE merge rules, either `"a b"` (older HuggingFace tokenizer.json) or
-     * `["a", "b"]` (newer tokenizer.json). Accepted and normalised, but note
-     * that `encode()` currently implements WordPiece only — see `applyBPE`.
+     * `["a", "b"]` (newer tokenizer.json). Accepted and normalised. When present,
+     * `encode()` applies these merges and preserves case by default; otherwise it
+     * uses WordPiece.
      */
     merges?: Array<string | [string, string]>;
     specialTokens?: Record<string, number>;
@@ -111,11 +112,21 @@ interface TokenizerConfig {
     unkTokenId?: number;
     clsTokenId?: number;
     sepTokenId?: number;
+    /**
+     * Optional marker prepended to the first BPE piece of each word, e.g. `"▁"`
+     * for SentencePiece vocabularies or `"Ġ"` for byte-level BPE vocabularies.
+     * Without it, pieces are looked up exactly as produced by the merge table.
+     */
+    bpeSpaceMarker?: string;
 }
 interface EncodingResult {
     inputIds: Int32Array;
     attentionMask: Int32Array;
     tokenTypeIds?: Int32Array;
+    /** int64 view for ONNX models declared as `tensor(int64)`. */
+    inputIdsInt64: BigInt64Array;
+    attentionMaskInt64: BigInt64Array;
+    tokenTypeIdsInt64?: BigInt64Array;
 }
 /**
  * Production BPE/WordPiece tokenizer for ONNX model inference.
@@ -134,6 +145,9 @@ declare class Tokenizer {
     private clsTokenId;
     private sepTokenId;
     private bpeCache;
+    private mergeRanks;
+    private usesBPE;
+    private bpeSpaceMarker;
     constructor(config: TokenizerConfig);
     /**
      * Load tokenizer configuration from a JSON URL (tokenizer.json or vocab.json).
@@ -158,18 +172,32 @@ declare class Tokenizer {
      */
     get vocabSize(): number;
     /**
+     * Resolve a special token (e.g. `</s>`, `<|endoftext|>`) to its ID, whether it
+     * was declared in `specialTokens` or is present in the main vocabulary.
+     */
+    getSpecialTokenId(token: string): number | undefined;
+    /**
      * Pre-tokenize text: lowercase, split on whitespace and punctuation boundaries.
      */
     private preTokenize;
     /**
-     * Tokenize a single word using WordPiece algorithm.
+     * Tokenize a single word using the tokenizer's model type: BPE when a merge
+     * table is present, WordPiece otherwise.
      */
     private tokenizeWord;
     /**
-     * Apply BPE merges to a word (for BPE-style tokenizers like GPT-2).
+     * Apply the merge table to a word, then map the resulting pieces to IDs.
+     * Unknown pieces fall back to the unknown token rather than throwing, which
+     * matches ONNX Runtime's text-tokenizer behaviour.
+     */
+    private tokenizeWordBPE;
+    /**
+     * Apply BPE merges to a word (for BPE-style tokenizers like GPT-2/Llama).
+     * Merge rules are applied in ascending rank order until no adjacent pair is
+     * present in the merge table; caching is keyed on the original word.
      */
     private applyBPE;
-    private getCharPairs;
+    private static toInt64;
 }
 
 declare class ImageProcessor {
@@ -183,6 +211,25 @@ interface EdgeInferOptions extends ModelOptions, DownloadOptions {
     licenseKey?: string;
     tokenizerUrl?: string;
     tokenizerConfig?: TokenizerConfig;
+    /**
+     * Force int64 `input_ids`/`attention_mask` tensors. By default the engine
+     * inspects ONNX input metadata and falls back to int32.
+     */
+    int64Inputs?: boolean;
+}
+interface GenerateOptions {
+    /** Maximum number of new tokens to emit. Default: 64. */
+    maxNewTokens?: number;
+    /** 0 (default) is greedy decoding; >0 enables temperature sampling. */
+    temperature?: number;
+    /** Optional top-k truncation for sampling. 0 disables it. */
+    topK?: number;
+    /** Stop token. Defaults to the tokenizer's `</s>` when present. */
+    eosTokenId?: number;
+}
+interface GenerationResult {
+    text: string;
+    tokenIds: number[];
 }
 /**
  * EdgeInfer — On-Device WebGPU/WASM AI Inference Engine.
@@ -199,6 +246,7 @@ declare class EdgeInfer {
     private _outputNames;
     private _modelSize;
     private _provider;
+    private _int64Inputs;
     private constructor();
     /**
      * Load a model from URL with automatic caching and optimal provider selection.
@@ -240,6 +288,22 @@ declare class EdgeInfer {
      */
     embedMatryoshka(text: string, dimension: number): Promise<Float32Array>;
     /**
+     * Greedy or temperature-sampled autoregressive generation.
+     *
+     * Decoder models that expose `present.*` outputs and `past_key_values.*`
+     * inputs reuse those tensors across steps (KV-cache). Models without cache
+     * inputs are re-run over the full sequence each step.
+     */
+    generate(prompt: string, options?: GenerateOptions): Promise<GenerationResult>;
+    /** Pick the last-token logits from the first output that looks like logits. */
+    private findLogits;
+    /** Argmax (temperature 0) or temperature/top-k sampling over last-token logits. */
+    private pickNextToken;
+    private static pastInputName;
+    private useInt64Inputs;
+    /** Build input_ids/attention_mask tensors in the dtype the model declares. */
+    private textInputs;
+    /**
      * Sentiment analysis.
      */
     sentiment(text: string): Promise<{
@@ -280,4 +344,4 @@ declare class EdgeInfer {
     private l2Normalize;
 }
 
-export { type ClassificationResult, type Detection, type DownloadOptions, EdgeInfer, type EdgeInferOptions, type EncodingResult, EventEmitter, type GPUCapabilities, ImageProcessor, ModelCache, type ModelOptions, RuntimeManager, Tokenizer, type TokenizerConfig };
+export { type ClassificationResult, type Detection, type DownloadOptions, EdgeInfer, type EdgeInferOptions, type EncodingResult, EventEmitter, type GPUCapabilities, type GenerateOptions, type GenerationResult, ImageProcessor, ModelCache, type ModelOptions, RuntimeManager, Tokenizer, type TokenizerConfig };

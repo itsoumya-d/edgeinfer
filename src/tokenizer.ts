@@ -10,8 +10,9 @@ export interface TokenizerConfig {
   lowercase?: boolean;
   /**
    * BPE merge rules, either `"a b"` (older HuggingFace tokenizer.json) or
-   * `["a", "b"]` (newer tokenizer.json). Accepted and normalised, but note
-   * that `encode()` currently implements WordPiece only — see `applyBPE`.
+   * `["a", "b"]` (newer tokenizer.json). Accepted and normalised. When present,
+   * `encode()` applies these merges and preserves case by default; otherwise it
+   * uses WordPiece.
    */
   merges?: Array<string | [string, string]>;
   specialTokens?: Record<string, number>;
@@ -20,12 +21,22 @@ export interface TokenizerConfig {
   unkTokenId?: number;
   clsTokenId?: number;
   sepTokenId?: number;
+  /**
+   * Optional marker prepended to the first BPE piece of each word, e.g. `"▁"`
+   * for SentencePiece vocabularies or `"Ġ"` for byte-level BPE vocabularies.
+   * Without it, pieces are looked up exactly as produced by the merge table.
+   */
+  bpeSpaceMarker?: string;
 }
 
 export interface EncodingResult {
   inputIds: Int32Array;
   attentionMask: Int32Array;
   tokenTypeIds?: Int32Array;
+  /** int64 view for ONNX models declared as `tensor(int64)`. */
+  inputIdsInt64: BigInt64Array;
+  attentionMaskInt64: BigInt64Array;
+  tokenTypeIdsInt64?: BigInt64Array;
 }
 
 /**
@@ -45,9 +56,11 @@ export class Tokenizer {
   private clsTokenId: number;
   private sepTokenId: number;
   private bpeCache: Map<string, string[]>;
+  private mergeRanks: Map<string, number>;
+  private usesBPE: boolean;
+  private bpeSpaceMarker: string;
 
   constructor(config: TokenizerConfig) {
-    this.lowercase = config.lowercase ?? true;
     this.vocab = new Map(Object.entries(config.vocab));
     this.inverseVocab = new Map<number, string>();
     for (const [token, id] of this.vocab) {
@@ -74,6 +87,18 @@ export class Tokenizer {
     this.clsTokenId = config.clsTokenId ?? 101;
     this.sepTokenId = config.sepTokenId ?? 102;
     this.bpeCache = new Map();
+    this.usesBPE = this.merges.length > 0;
+    this.bpeSpaceMarker = config.bpeSpaceMarker ?? '';
+
+    this.mergeRanks = new Map();
+    this.merges.forEach(([first, second], rank) => {
+      this.mergeRanks.set(`${first} ${second}`, rank);
+    });
+
+    // Older WordPiece-only callers relied on an implicit uncased default. A
+    // merge table means the vocabulary is BPE (typically cased), so preserving
+    // case is the only safe default there.
+    this.lowercase = config.lowercase ?? !this.usesBPE;
   }
 
   /**
@@ -99,7 +124,9 @@ export class Tokenizer {
       }
       return new Tokenizer({
         vocab: config.model.vocab,
-        lowercase: Tokenizer.normalizerLowercase(config.normalizer),
+        lowercase: config.normalizer === undefined
+          ? undefined
+          : Tokenizer.normalizerLowercase(config.normalizer),
         merges: config.model.merges || [],
         specialTokens,
         maxLength: config.truncation?.max_length || 512,
@@ -169,6 +196,8 @@ export class Tokenizer {
       return {
         inputIds: fallback,
         attentionMask: new Int32Array([0]),
+        inputIdsInt64: Tokenizer.toInt64(fallback),
+        attentionMaskInt64: new BigInt64Array([0n]),
       };
     }
 
@@ -183,7 +212,12 @@ export class Tokenizer {
       inputIds.fill(this.padTokenId, truncated.length);
     }
 
-    return { inputIds, attentionMask };
+    return {
+      inputIds,
+      attentionMask,
+      inputIdsInt64: Tokenizer.toInt64(inputIds),
+      attentionMaskInt64: Tokenizer.toInt64(attentionMask),
+    };
   }
 
   /**
@@ -205,6 +239,9 @@ export class Tokenizer {
         } else {
           words.push(token.slice(2));
         }
+      } else if (token.startsWith('\u2581') || token.startsWith('\u0120')) {
+        // SentencePiece (`▁`) and byte-level BPE (`Ġ`) word markers.
+        words.push(token.slice(1));
       } else {
         words.push(token);
       }
@@ -218,6 +255,14 @@ export class Tokenizer {
    */
   get vocabSize(): number {
     return this.vocab.size;
+  }
+
+  /**
+   * Resolve a special token (e.g. `</s>`, `<|endoftext|>`) to its ID, whether it
+   * was declared in `specialTokens` or is present in the main vocabulary.
+   */
+  getSpecialTokenId(token: string): number | undefined {
+    return this.specialTokens.get(token) ?? this.vocab.get(token);
   }
 
   /**
@@ -249,9 +294,12 @@ export class Tokenizer {
   }
 
   /**
-   * Tokenize a single word using WordPiece algorithm.
+   * Tokenize a single word using the tokenizer's model type: BPE when a merge
+   * table is present, WordPiece otherwise.
    */
   private tokenizeWord(word: string): number[] {
+    if (this.usesBPE) return this.tokenizeWordBPE(word);
+
     // Check if whole word is in vocabulary
     if (this.vocab.has(word)) {
       return [this.vocab.get(word)!];
@@ -292,50 +340,81 @@ export class Tokenizer {
   }
 
   /**
-   * Apply BPE merges to a word (for BPE-style tokenizers like GPT-2).
+   * Apply the merge table to a word, then map the resulting pieces to IDs.
+   * Unknown pieces fall back to the unknown token rather than throwing, which
+   * matches ONNX Runtime's text-tokenizer behaviour.
+   */
+  private tokenizeWordBPE(word: string): number[] {
+    const whole = this.vocab.get(
+      this.bpeSpaceMarker ? this.bpeSpaceMarker + word : word
+    );
+    if (whole !== undefined) return [whole];
+
+    const pieces = this.applyBPE(word);
+    const ids: number[] = [];
+
+    for (let i = 0; i < pieces.length; i++) {
+      const piece = i === 0 && this.bpeSpaceMarker
+        ? this.bpeSpaceMarker + pieces[i]
+        : pieces[i];
+      const id = this.vocab.get(piece);
+      if (id !== undefined) {
+        ids.push(id);
+        continue;
+      }
+      ids.push(this.unkTokenId);
+    }
+
+    return ids;
+  }
+
+  /**
+   * Apply BPE merges to a word (for BPE-style tokenizers like GPT-2/Llama).
+   * Merge rules are applied in ascending rank order until no adjacent pair is
+   * present in the merge table; caching is keyed on the original word.
    */
   private applyBPE(word: string): string[] {
     const cached = this.bpeCache.get(word);
     if (cached) return cached;
 
-    let pairs = this.getCharPairs(word.split(''));
-    if (pairs.length === 0) return [word];
-
     let tokens = word.split('');
+    if (tokens.length <= 1 || this.mergeRanks.size === 0) {
+      this.bpeCache.set(word, tokens);
+      return tokens;
+    }
 
-    for (const [first, second] of this.merges) {
-      const newTokens: string[] = [];
-      let i = 0;
+    while (tokens.length > 1) {
+      let bestRank = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < tokens.length - 1; i++) {
+        const rank = this.mergeRanks.get(`${tokens[i]} ${tokens[i + 1]}`);
+        if (rank !== undefined && rank < bestRank) bestRank = rank;
+      }
+      if (bestRank === Number.POSITIVE_INFINITY) break;
 
-      while (i < tokens.length) {
-        const j = tokens.indexOf(first, i);
-        if (j === -1) {
-          newTokens.push(...tokens.slice(i));
-          break;
-        }
-
-        newTokens.push(...tokens.slice(i, j));
-
-        if (j < tokens.length - 1 && tokens[j + 1] === second) {
-          newTokens.push(first + second);
-          i = j + 2;
+      const merged: string[] = [];
+      for (let i = 0; i < tokens.length; i++) {
+        if (
+          i < tokens.length - 1 &&
+          this.mergeRanks.get(`${tokens[i]} ${tokens[i + 1]}`) === bestRank
+        ) {
+          merged.push(tokens[i] + tokens[i + 1]);
+          i++;
         } else {
-          newTokens.push(tokens[j]);
-          i = j + 1;
+          merged.push(tokens[i]);
         }
       }
-      tokens = newTokens;
+
+      if (merged.length === tokens.length) break;
+      tokens = merged;
     }
 
     this.bpeCache.set(word, tokens);
     return tokens;
   }
 
-  private getCharPairs(chars: string[]): Array<[string, string]> {
-    const pairs: Array<[string, string]> = [];
-    for (let i = 0; i < chars.length - 1; i++) {
-      pairs.push([chars[i], chars[i + 1]]);
-    }
-    return pairs;
+  private static toInt64(values: Int32Array): BigInt64Array {
+    const out = new BigInt64Array(values.length);
+    for (let i = 0; i < values.length; i++) out[i] = BigInt(values[i]);
+    return out;
   }
 }
