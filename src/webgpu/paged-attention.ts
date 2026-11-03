@@ -88,6 +88,37 @@ function fail(message: string): never {
   throw new PagedAttentionError('INVALID_PARAMS', message);
 }
 
+// Float32 -> IEEE 754 binary16 bits. Handles finite values and saturates
+// overflow to infinity; the current fixture stays well inside ±1.
+function float32ToFloat16Bits(values: Float32Array): Uint16Array {
+  const out = new Uint16Array(values.length);
+  const floatView = new Float32Array(1);
+  const intView = new Int32Array(floatView.buffer);
+  for (let index = 0; index < values.length; index += 1) {
+    floatView[0] = values[index];
+    const x = intView[0];
+    let bits = (x >> 16) & 0x8000;
+    let mantissa = (x >> 12) & 0x07ff;
+    const exponent = (x >> 23) & 0xff;
+    if (exponent < 103) {
+      out[index] = bits;
+      continue;
+    }
+    if (exponent > 142) {
+      bits |= 0x7c00;
+      bits |= (exponent === 255 ? 0x200 : 0) | ((x >> 13) & 0x3ff);
+    } else if (exponent < 113) {
+      mantissa |= 0x0800;
+      bits |= (mantissa >> (114 - exponent)) + ((mantissa >> (113 - exponent)) & 1);
+    } else {
+      bits |= ((exponent - 112) << 10) | (mantissa >> 1);
+      bits += mantissa & 1;
+    }
+    out[index] = bits;
+  }
+  return out;
+}
+
 export async function runPagedAttention(params: PagedAttentionParams): Promise<PagedAttentionResult> {
   const {
     device,
@@ -137,13 +168,21 @@ export async function runPagedAttention(params: PagedAttentionParams): Promise<P
   if (pastLen === 0) {
     return { output: new Float32Array(expectedQuery) };
   }
+  if (!device.features?.has?.('shader-f16')) {
+    throw new PagedAttentionError(
+      'WEBGPU_UNAVAILABLE',
+      'shader-f16 is required for the paged-attention f16 KV cache',
+    );
+  }
 
   const pipeline = await getPipeline(device);
+  const keyBits = float32ToFloat16Bits(keyCache);
+  const valueBits = float32ToFloat16Bits(valueCache);
 
   const qBuffer = device.createBuffer({ size: expectedQuery * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   // NOTE: no COPY_SRC on the KV buffers — they can never be read back.
-  const kBuffer = device.createBuffer({ size: expectedLayer * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  const vBuffer = device.createBuffer({ size: expectedLayer * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  const kBuffer = device.createBuffer({ size: expectedLayer * 2, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  const vBuffer = device.createBuffer({ size: expectedLayer * 2, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   const tableBuffer = device.createBuffer({ size: numBlocks * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   const outBuffer = device.createBuffer({ size: outSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
   const statusBuffer = device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
@@ -152,8 +191,8 @@ export async function runPagedAttention(params: PagedAttentionParams): Promise<P
   const statusRead = device.createBuffer({ size: 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
 
   device.queue.writeBuffer(qBuffer, 0, query.buffer as ArrayBuffer);
-  device.queue.writeBuffer(kBuffer, 0, keyCache.buffer as ArrayBuffer);
-  device.queue.writeBuffer(vBuffer, 0, valueCache.buffer as ArrayBuffer);
+  device.queue.writeBuffer(kBuffer, 0, keyBits.buffer as ArrayBuffer);
+  device.queue.writeBuffer(vBuffer, 0, valueBits.buffer as ArrayBuffer);
   device.queue.writeBuffer(tableBuffer, 0, blockTable.buffer as ArrayBuffer);
   // The kernel only sets this to 1 on a non-finite score. Reset it once on the
   // host so one workgroup cannot overwrite another workgroup's failure.

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import math
 import random
+import struct
 from pathlib import Path
 
 from paged_attention_reference import PagedKVCache, compare_outputs, paged_attention
@@ -27,11 +28,15 @@ HEAD_DIM = 3
 MAX_SEQ_LEN = 64
 
 
+def _f16(value: float) -> float:
+    return struct.unpack("<e", struct.pack("<e", value))[0]
+
+
 def _nested(blocks: int, block_size: int, heads: int, head_dim: int, rng: random.Random):
     return [
         [
             [
-                [round(rng.uniform(-1.0, 1.0), 8) for _ in range(head_dim)]
+                [_f16(round(rng.uniform(-1.0, 1.0), 8)) for _ in range(head_dim)]
                 for _ in range(heads)
             ]
             for _ in range(block_size)

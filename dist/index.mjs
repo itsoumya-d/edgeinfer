@@ -1746,10 +1746,12 @@ var OnnxCausalLM = class {
 // src/webgpu/paged-attention-wgsl.ts
 var PAGED_ATTENTION_WGSL = (
   /* wgsl */
-  `// Paged attention (decode-time), float32, single layer.
+  `// Paged attention (decode-time), f16 KV cache, f32 accumulation, single layer.
 // Layout: KV[block_id][slot][kv_head][head_dim], block_size = 16 (uniform).
 // MHA and GQA: query head h reads KV head h / (num_query_heads / num_kv_heads).
 //
+enable f16;
+
 // One workgroup per query head; 64 invocations. The kernel keeps the running
 // max m and denominator l in registers (replicated across threads) and reduces
 // q\xB7k with workgroup shared memory. The N x N attention matrix is never
@@ -1776,8 +1778,8 @@ struct Params {
 
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> query: array<f32>;        // [num_query_heads, head_dim]
-@group(0) @binding(2) var<storage, read> key_cache: array<f32>;    // [num_blocks, block_size, num_kv_heads, head_dim]
-@group(0) @binding(3) var<storage, read> value_cache: array<f32>;  // same layout as key_cache
+@group(0) @binding(2) var<storage, read> key_cache: array<f16>;    // [num_blocks, block_size, num_kv_heads, head_dim]
+@group(0) @binding(3) var<storage, read> value_cache: array<f16>;  // same layout as key_cache
 @group(0) @binding(4) var<storage, read> block_table: array<u32>;  // [num_blocks]
 @group(0) @binding(5) var<storage, read_write> output: array<f32>; // [num_query_heads, head_dim]
 @group(0) @binding(6) var<storage, read_write> status: array<u32>; // [1]; 0 = ok, 1 = non-finite score
@@ -1827,7 +1829,7 @@ fn main(
       if (d >= head_dim) {
         break;
       }
-      partial = partial + q_shared[d] * key_cache[base + d];
+      partial = partial + q_shared[d] * f32(key_cache[base + d]);
       d = d + WORKGROUP_SIZE;
     }
     reduce[lid] = partial;
@@ -1867,10 +1869,10 @@ fn main(
     l = l * alpha + probability;
 
     if (lid < head_dim) {
-      acc0 = acc0 * alpha + probability * value_cache[base + lid];
+      acc0 = acc0 * alpha + probability * f32(value_cache[base + lid]);
     }
     if (d1 < head_dim) {
-      acc1 = acc1 * alpha + probability * value_cache[base + d1];
+      acc1 = acc1 * alpha + probability * f32(value_cache[base + d1]);
     }
     m = new_m;
     workgroupBarrier(); // everyone finished reading score_shared before next iteration
@@ -1938,6 +1940,34 @@ async function getPipeline(device) {
 function fail(message) {
   throw new PagedAttentionError("INVALID_PARAMS", message);
 }
+function float32ToFloat16Bits(values) {
+  const out = new Uint16Array(values.length);
+  const floatView = new Float32Array(1);
+  const intView = new Int32Array(floatView.buffer);
+  for (let index = 0; index < values.length; index += 1) {
+    floatView[0] = values[index];
+    const x = intView[0];
+    let bits = x >> 16 & 32768;
+    let mantissa = x >> 12 & 2047;
+    const exponent = x >> 23 & 255;
+    if (exponent < 103) {
+      out[index] = bits;
+      continue;
+    }
+    if (exponent > 142) {
+      bits |= 31744;
+      bits |= (exponent === 255 ? 512 : 0) | x >> 13 & 1023;
+    } else if (exponent < 113) {
+      mantissa |= 2048;
+      bits |= (mantissa >> 114 - exponent) + (mantissa >> 113 - exponent & 1);
+    } else {
+      bits |= exponent - 112 << 10 | mantissa >> 1;
+      bits += mantissa & 1;
+    }
+    out[index] = bits;
+  }
+  return out;
+}
 async function runPagedAttention(params) {
   const {
     device,
@@ -1983,10 +2013,18 @@ async function runPagedAttention(params) {
   if (pastLen === 0) {
     return { output: new Float32Array(expectedQuery) };
   }
+  if (!device.features?.has?.("shader-f16")) {
+    throw new PagedAttentionError(
+      "WEBGPU_UNAVAILABLE",
+      "shader-f16 is required for the paged-attention f16 KV cache"
+    );
+  }
   const pipeline = await getPipeline(device);
+  const keyBits = float32ToFloat16Bits(keyCache);
+  const valueBits = float32ToFloat16Bits(valueCache);
   const qBuffer = device.createBuffer({ size: expectedQuery * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  const kBuffer = device.createBuffer({ size: expectedLayer * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  const vBuffer = device.createBuffer({ size: expectedLayer * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  const kBuffer = device.createBuffer({ size: expectedLayer * 2, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  const vBuffer = device.createBuffer({ size: expectedLayer * 2, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   const tableBuffer = device.createBuffer({ size: numBlocks * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   const outBuffer = device.createBuffer({ size: outSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
   const statusBuffer = device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
@@ -1994,8 +2032,8 @@ async function runPagedAttention(params) {
   const outRead = device.createBuffer({ size: outSize, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
   const statusRead = device.createBuffer({ size: 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
   device.queue.writeBuffer(qBuffer, 0, query.buffer);
-  device.queue.writeBuffer(kBuffer, 0, keyCache.buffer);
-  device.queue.writeBuffer(vBuffer, 0, valueCache.buffer);
+  device.queue.writeBuffer(kBuffer, 0, keyBits.buffer);
+  device.queue.writeBuffer(vBuffer, 0, valueBits.buffer);
   device.queue.writeBuffer(tableBuffer, 0, blockTable.buffer);
   device.queue.writeBuffer(statusBuffer, 0, new Uint32Array([0]).buffer);
   const uniforms = new ArrayBuffer(48);

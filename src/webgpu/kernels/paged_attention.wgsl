@@ -1,7 +1,9 @@
-// Paged attention (decode-time), float32, single layer.
+// Paged attention (decode-time), f16 KV cache, f32 accumulation, single layer.
 // Layout: KV[block_id][slot][kv_head][head_dim], block_size = 16 (uniform).
 // MHA and GQA: query head h reads KV head h / (num_query_heads / num_kv_heads).
 //
+enable f16;
+
 // One workgroup per query head; 64 invocations. The kernel keeps the running
 // max m and denominator l in registers (replicated across threads) and reduces
 // q·k with workgroup shared memory. The N x N attention matrix is never
@@ -28,8 +30,8 @@ struct Params {
 
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> query: array<f32>;        // [num_query_heads, head_dim]
-@group(0) @binding(2) var<storage, read> key_cache: array<f32>;    // [num_blocks, block_size, num_kv_heads, head_dim]
-@group(0) @binding(3) var<storage, read> value_cache: array<f32>;  // same layout as key_cache
+@group(0) @binding(2) var<storage, read> key_cache: array<f16>;    // [num_blocks, block_size, num_kv_heads, head_dim]
+@group(0) @binding(3) var<storage, read> value_cache: array<f16>;  // same layout as key_cache
 @group(0) @binding(4) var<storage, read> block_table: array<u32>;  // [num_blocks]
 @group(0) @binding(5) var<storage, read_write> output: array<f32>; // [num_query_heads, head_dim]
 @group(0) @binding(6) var<storage, read_write> status: array<u32>; // [1]; 0 = ok, 1 = non-finite score
@@ -79,7 +81,7 @@ fn main(
       if (d >= head_dim) {
         break;
       }
-      partial = partial + q_shared[d] * key_cache[base + d];
+      partial = partial + q_shared[d] * f32(key_cache[base + d]);
       d = d + WORKGROUP_SIZE;
     }
     reduce[lid] = partial;
@@ -119,10 +121,10 @@ fn main(
     l = l * alpha + probability;
 
     if (lid < head_dim) {
-      acc0 = acc0 * alpha + probability * value_cache[base + lid];
+      acc0 = acc0 * alpha + probability * f32(value_cache[base + lid]);
     }
     if (d1 < head_dim) {
-      acc1 = acc1 * alpha + probability * value_cache[base + d1];
+      acc1 = acc1 * alpha + probability * f32(value_cache[base + d1]);
     }
     m = new_m;
     workgroupBarrier(); // everyone finished reading score_shared before next iteration

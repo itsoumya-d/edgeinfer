@@ -1,10 +1,10 @@
 # WGSL paged-attention design note
 
-Status: **float32 WGSL kernel implemented and browser-tested on synthetic
+Status: **f16 KV WGSL kernel implemented and browser-tested on synthetic
 cases**. It passes 20/20 fixture cases on an NVIDIA Turing adapter (Chrome 156)
-with max absolute error **4.84e-8**. No f16 cache, SmolLM2 token parity,
-zero-readback trace, memory measurement, or performance benchmark is shipped
-yet. The SDK still documents that GPUBuffer-resident paged KV is not wired into
+with max absolute error **4.79e-8**. No SmolLM2 token parity, validation-layer
+trace, memory-within-5% measurement, or performance benchmark is shipped yet.
+The SDK still documents that GPUBuffer-resident paged KV is not wired into
 `EdgeInfer.generate()`.
 
 ## Why a separate kernel path is required
@@ -47,18 +47,18 @@ against the ORT path before any performance number is published.
 
 ## KV cache layout
 
-The target cache is a flat `f16` storage buffer per layer:
+The cache is a flat `f16` storage buffer per layer:
 
 ```
 KV[block_id][slot][kv_head][head_dim]
 ```
 
-The first correctness kernel uses `f32` storage with the same layout; it is not
-the final memory format. `block_size = 16` tokens, `slot = token_index %
-block_size`, and `num_blocks = ceil(max_seq_len / block_size)`. A block table
-maps logical block index to physical block id, so sequences can grow without
-reallocating the whole cache. `past_len` and `block_table` live in a small
-uniform buffer updated once per decode step.
+`block_size = 16` tokens, `slot = token_index % block_size`, and `num_blocks =
+ceil(max_seq_len / block_size)`. A block table maps logical block index to
+physical block id, so sequences can grow without reallocating the whole cache.
+`past_len` and `block_table` live in a small uniform buffer updated once per
+decode step. The host converts `Float32Array` inputs to IEEE-754 half bits; the
+Python reference fixture is generated from the same f16-rounded K/V values.
 
 ## Bindings
 
@@ -66,8 +66,8 @@ uniform buffer updated once per decode step.
 |---|---|---|
 | 0 | `uniform` | `past_len`, query/KV heads, `head_dim`, `scale`, `block_size`, `layer`, `num_blocks` |
 | 1 | `storage` (read) | query vector, `[num_query_heads, head_dim]` |
-| 2 | `storage` (read) | K cache blocks (`f32` in the first kernel) |
-| 3 | `storage` (read) | V cache blocks (`f32` in the first kernel) |
+| 2 | `storage` (read) | K cache blocks (`f16`) |
+| 3 | `storage` (read) | V cache blocks (`f16`) |
 | 4 | `storage` (read) | block table |
 | 5 | `storage` (read/write) | output vector |
 | 6 | `storage` (read/write) | status word: 0 = ok, 1 = non-finite score |
@@ -114,7 +114,7 @@ Measured on 2026-11-03 in Chrome 156 on the RTX 2060 (NVIDIA Turing adapter):
 
 | Cases | Passed | Failed | Max absolute error | Zero-Readback |
 |---:|---:|---:|---:|---|
-| 20 | **20** | 0 | **8.43e-8** | **40/40 KV creates clean** |
+| 20 | **20** | 0 | **4.79e-8** | **40/40 KV creates clean** |
 
 The fixture includes MHA and GQA cases. `zero_readback` is a runtime
 buffer-usage capability check: no KV-sized buffer is created with `COPY_SRC` or
@@ -142,9 +142,9 @@ not wired into `EdgeInfer.generate()`; the ORT path remains the default.
 ## Non-goals
 
 - Training or fine-tuning.
-- f16 KV cache and quantized cache; the first correctness kernel uses f32.
-- MQA and GQA-specific browser parity. The kernel implements the standard GQA
-  head mapping, but the current browser fixture uses equal query/KV heads.
+- Quantized KV cache; the current kernel uses f16 storage and f32 accumulation.
+- MQA and GQA-specific tuning beyond the standard head mapping; the browser
+  fixture includes MHA and GQA cases.
 
 ## Integration
 
