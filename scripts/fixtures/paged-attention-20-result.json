@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "kind": "paged_attention_webgpu_result",
+  "date": "2026-11-03",
+  "browser": "Chrome 156",
+  "adapter": {
+    "vendor": "nvidia",
+    "architecture": "turing",
+    "features": ["shader-f16", "subgroups", "timestamp-query"]
+  },
+  "fixture": "paged-attention-20.json",
+  "cases": 20,
+  "passed": 20,
+  "failed": 0,
+  "max_abs": 8.430077497179056e-08,
+  "atol": 0.002,
+  "rtol": 0.02,
+  "zero_readback": true,
+  "kv_buffer_creates": 40,
+  "case_max_abs": [
+    2.9190368677767253e-08,
+    2.7315708556185925e-08,
+    3.3493644246984644e-08,
+    3.4942537446847055e-08,
+    1.6745113740057604e-08,
+    5.1774567369489155e-08,
+    7.125219694814611e-08,
+    3.2819051559718204e-08,
+    1.9690406805050742e-08,
+    2.4180847088550728e-08,
+    2.9408111612561072e-08,
+    2.4452410291031512e-08,
+    1.7154975100186487e-08,
+    5.685948462064161e-08,
+    1.523869319619564e-08,
+    2.227953088684842e-08,
+    4.311354093178288e-08,
+    3.4196446146994575e-08,
+    6.138297034552487e-08,
+    8.430077497179056e-08
+  ],
+  "note": "Synthetic tensor cases include MHA and GQA; not SmolLM2 logits. zero_readback is a runtime buffer-usage capability check, not a validation-layer trace."
+}

@@ -1,9 +1,11 @@
 # WGSL paged-attention design note
 
-Status: **CPU reference and parity harness implemented**. No WGSL kernel, no
-model-level parity, and no benchmark or speedup claim is shipped in this
-change. The current SDK still explicitly documents that GPUBuffer-resident
-paged KV is not implemented.
+Status: **float32 WGSL kernel implemented and browser-tested on synthetic
+cases**. It passes 20/20 fixture cases on an NVIDIA Turing adapter (Chrome 156)
+with max absolute error **4.84e-8**. No f16 cache, SmolLM2 token parity,
+zero-readback trace, memory measurement, or performance benchmark is shipped
+yet. The SDK still documents that GPUBuffer-resident paged KV is not wired into
+`EdgeInfer.generate()`.
 
 ## Why a separate kernel path is required
 
@@ -45,35 +47,35 @@ against the ORT path before any performance number is published.
 
 ## KV cache layout
 
-The cache is a flat `f16` storage buffer per layer:
+The target cache is a flat `f16` storage buffer per layer:
 
 ```
 KV[block_id][slot][kv_head][head_dim]
 ```
 
-- `block_size = 16` tokens
-- `slot = token_index % block_size`
-- `num_blocks = ceil(max_seq_len / block_size)`
-- A block table maps logical block index to physical block id, so sequences can
-  grow without reallocating the whole cache.
-- `past_len` and `block_table` live in a small uniform buffer updated once per
-  decode step.
+The first correctness kernel uses `f32` storage with the same layout; it is not
+the final memory format. `block_size = 16` tokens, `slot = token_index %
+block_size`, and `num_blocks = ceil(max_seq_len / block_size)`. A block table
+maps logical block index to physical block id, so sequences can grow without
+reallocating the whole cache. `past_len` and `block_table` live in a small
+uniform buffer updated once per decode step.
 
 ## Bindings
 
 | Binding | Type | Purpose |
 |---|---|---|
-| 0 | `uniform` | `past_len`, `num_kv_heads`, `head_dim`, `scale`, `block_size` |
-| 1 | `storage` (read) | query vector, `[num_heads, head_dim]` |
-| 2 | `storage` (read) | K cache blocks |
-| 3 | `storage` (read) | V cache blocks |
+| 0 | `uniform` | `past_len`, query/KV heads, `head_dim`, `scale`, `block_size`, `layer`, `num_blocks` |
+| 1 | `storage` (read) | query vector, `[num_query_heads, head_dim]` |
+| 2 | `storage` (read) | K cache blocks (`f32` in the first kernel) |
+| 3 | `storage` (read) | V cache blocks (`f32` in the first kernel) |
 | 4 | `storage` (read) | block table |
-| 5 | `storage` (read/write) | output vector and per-head `m`, `l` state |
+| 5 | `storage` (read/write) | output vector |
+| 6 | `storage` (read/write) | status word: 0 = ok, 1 = non-finite score |
 
-Workgroup size: `64` invocations, one workgroup per `(head, head_dim tile)`.
-Each invocation accumulates a `head_dim` slice and reduces through workgroup
-shared memory. The first implementation should favour correctness over
-occupancy; tuning is a later, measured step.
+Workgroup size: `64` invocations, one workgroup per query head. Each invocation
+accumulates one or two `head_dim` elements and the `q·k` dot product is reduced
+through workgroup shared memory. The kernel favours correctness over occupancy;
+tuning is a later, measured step.
 
 ## Online softmax
 
@@ -94,6 +96,34 @@ implement the same recurrence in `float32`, and the WGSL path must match it
 within a documented tolerance (`atol=2e-3`, `rtol=2e-2` on logits) before it is
 considered correct.
 
+## WGSL kernel and browser result
+
+- `src/webgpu/kernels/paged_attention.wgsl` implements one workgroup per query
+  head, 64 invocations, online softmax, GQA head mapping, and a status word for
+  non-finite scores.
+- `src/webgpu/paged-attention.ts` is the host driver. K/V buffers are created
+  with `STORAGE | COPY_DST` only; they have no `COPY_SRC` or `MAP_READ` usage.
+  Only the small output and status buffers are copied back.
+- `scripts/build_parity_fixture.py` builds the 20-case synthetic fixture with
+  float32 reference outputs.
+- `scripts/webgpu-paged-attention/index.html` runs the kernel against that
+  fixture; open it from a local HTTP server (not `file://`).
+- `scripts/build-wgsl-harness.mjs` rebuilds the standalone browser bundle.
+
+Measured on 2026-11-03 in Chrome 156 on the RTX 2060 (NVIDIA Turing adapter):
+
+| Cases | Passed | Failed | Max absolute error | Zero-Readback |
+|---:|---:|---:|---:|---|
+| 20 | **20** | 0 | **8.43e-8** | **40/40 KV creates clean** |
+
+The fixture includes MHA and GQA cases. `zero_readback` is a runtime
+buffer-usage capability check: no KV-sized buffer is created with `COPY_SRC` or
+`MAP_READ`; it is not a validation-layer `mapAsync` trace. The fixture is
+synthetic attention tensors, not SmolLM2 logits.
+
+The kernel is exported as an opt-in building block (`runPagedAttention`) and is
+not wired into `EdgeInfer.generate()`; the ORT path remains the default.
+
 ## Acceptance gates
 
 1. **Parity:** greedy decode for 32 tokens matches the ORT baseline on
@@ -112,9 +142,9 @@ considered correct.
 ## Non-goals
 
 - Training or fine-tuning.
-- Quantized KV cache (the first version is `f16`).
-- Multi-query attention and GQA-specific tuning. The CPU reference supports the
-  standard GQA head mapping; the WGSL path is not yet verified for GQA.
+- f16 KV cache and quantized cache; the first correctness kernel uses f32.
+- MQA and GQA-specific browser parity. The kernel implements the standard GQA
+  head mapping, but the current browser fixture uses equal query/KV heads.
 
 ## Integration
 
