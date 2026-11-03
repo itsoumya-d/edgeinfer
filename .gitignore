@@ -3,3 +3,4 @@ dist/*.map
 .env
 __pycache__/
 *.pyc
+models/

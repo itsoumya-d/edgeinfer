@@ -12,7 +12,9 @@ Cache layout, matching the design note:
 - `block_size` is 16 by default.
 - `block_table[logical_block]` maps to a physical block id.
 - Positions at or beyond `past_len` in the final block are ignored.
-- The first version is multi-head attention only (`num_heads == num_kv_heads`).
+- MHA (`num_heads == num_kv_heads`) and GQA (`num_heads` is a positive
+  multiple of `num_kv_heads`; query head `h` reads KV head
+  `h // (num_heads // num_kv_heads)`).
 
 No WGSL is shipped here. The comparison harness lives in
 `paged_attention_parity.py`.
@@ -161,19 +163,26 @@ def paged_attention(
         raise ValueError(f"layer must be in [0, {cache.num_layers})")
     if not 0 <= past_len <= cache.max_seq_len:
         raise ValueError(f"past_len must be in [0, {cache.max_seq_len}]")
-    _check_matrix(q, cache.num_kv_heads, cache.head_dim, "q")
+    _check_matrix(q, len(q), cache.head_dim, "q")
+    query_heads = len(q)
+    if query_heads < cache.num_kv_heads or query_heads % cache.num_kv_heads != 0:
+        raise ValueError(
+            "number of query heads must be a positive multiple of num_kv_heads"
+        )
+    query_heads_per_kv = query_heads // cache.num_kv_heads
 
     if scale is None:
         scale = 1.0 / math.sqrt(cache.head_dim)
     if not math.isfinite(scale):
         raise ValueError("scale must be finite")
 
-    heads = cache.num_kv_heads
+    heads = query_heads
     if past_len == 0:
         return [[0.0 for _ in range(cache.head_dim)] for _ in range(heads)]
 
     output: list[list[float]] = []
     for head in range(heads):
+        kv_head = head // query_heads_per_kv
         m = -math.inf
         denominator = 0.0
         accumulator = [0.0 for _ in range(cache.head_dim)]
@@ -184,8 +193,8 @@ def paged_attention(
                 position = logical * cache.block_size + slot
                 if position >= past_len:
                     break
-                key = cache.k[layer][physical][slot][head]
-                value = cache.v[layer][physical][slot][head]
+                key = cache.k[layer][physical][slot][kv_head]
+                value = cache.v[layer][physical][slot][kv_head]
                 score = sum(q[head][dim] * key[dim] for dim in range(cache.head_dim)) * scale
                 if not math.isfinite(score):
                     raise ValueError(f"non-finite attention score at position {position}")
@@ -225,16 +234,25 @@ def dense_attention(
         raise ValueError("scale must be finite")
     if not 0 <= past_len <= len(keys):
         raise ValueError(f"past_len must be in [0, {len(keys)}]")
+    if past_len == 0:
+        return [[0.0 for _ in range(head_dim)] for _ in range(heads)]
+    key_value_heads = len(keys[0])
+    if key_value_heads < 1 or heads < key_value_heads or heads % key_value_heads != 0:
+        raise ValueError("number of query heads must be a positive multiple of the number of KV heads")
+    heads_per_kv = heads // key_value_heads
+    for position in range(past_len):
+        if len(keys[position]) != key_value_heads or len(values[position]) != key_value_heads:
+            raise ValueError(f"position {position} has the wrong number of KV heads")
+        for head in range(key_value_heads):
+            if len(keys[position][head]) != head_dim or len(values[position][head]) != head_dim:
+                raise ValueError(f"position {position} KV head {head} has the wrong dimension")
 
     output = []
     for head in range(heads):
+        kv_head = head // heads_per_kv
         scores = []
         for position in range(past_len):
-            if len(keys[position]) <= head or len(values[position]) <= head:
-                raise ValueError(f"position {position} is missing head {head}")
-            key = keys[position][head]
-            if len(key) != head_dim or len(values[position][head]) != head_dim:
-                raise ValueError(f"position {position} head {head} has the wrong dimension")
+            key = keys[position][kv_head]
             scores.append(sum(q[head][dim] * key[dim] for dim in range(head_dim)) * scale)
         if not scores:
             output.append([0.0 for _ in range(head_dim)])
@@ -244,7 +262,7 @@ def dense_attention(
         total = sum(probabilities)
         output.append(
             [
-                sum(probability * values[position][head][dim] for position, probability in enumerate(probabilities))
+                sum(probability * values[position][kv_head][dim] for position, probability in enumerate(probabilities))
                 / total
                 for dim in range(head_dim)
             ]
