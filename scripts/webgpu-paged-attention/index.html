@@ -51,13 +51,14 @@
         if (!navigator.gpu) throw new Error("navigator.gpu is unavailable");
         const adapter = await navigator.gpu.requestAdapter();
         if (!adapter) throw new Error("requestAdapter returned null");
-        const device = await adapter.requestDevice();
+        if (!adapter.features.has("shader-f16")) throw new Error("shader-f16 is unavailable");
+        const device = await adapter.requestDevice({ requiredFeatures: ["shader-f16"] });
         const fixture = await (await fetch("../fixtures/paged-attention-20.json", { cache: "no-store" })).json();
         const kvSizes = new Set(
           fixture.cases.map((item) => {
             const cache = item.cache;
             const blocks = Math.ceil(cache.max_seq_len / cache.block_size);
-            return blocks * cache.block_size * cache.num_kv_heads * cache.head_dim * 4;
+            return blocks * cache.block_size * cache.num_kv_heads * cache.head_dim * 2;
           })
         );
         const bufferCreates = [];
