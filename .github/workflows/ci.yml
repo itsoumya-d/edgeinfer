@@ -28,7 +28,7 @@ jobs:
 
       - name: Paged attention tests
         working-directory: scripts
-        run: python3 -m unittest test_paged_attention -v
+        run: python3 -m unittest test_paged_attention test_smollm2_baseline -v
 
   build:
     name: Build & test (Node ${{ matrix.node-version }})
