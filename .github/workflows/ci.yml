@@ -15,6 +15,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  paged-attention:
+    name: Paged attention reference
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Python version
+        run: python3 --version
+
+      - name: Paged attention tests
+        working-directory: scripts
+        run: python3 -m unittest test_paged_attention -v
+
   build:
     name: Build & test (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
