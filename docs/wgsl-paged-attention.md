@@ -1,8 +1,9 @@
 # WGSL paged-attention design note
 
-Status: **design only**. No shader, benchmark, or speedup claim is shipped in
-this change. The current SDK explicitly documents that GPUBuffer-resident paged
-KV is not implemented.
+Status: **CPU reference and parity harness implemented**. No WGSL kernel, no
+model-level parity, and no benchmark or speedup claim is shipped in this
+change. The current SDK still explicitly documents that GPUBuffer-resident
+paged KV is not implemented.
 
 ## Why a separate kernel path is required
 
@@ -14,6 +15,19 @@ readback requires owning the attention computation, not wrapping ORT's decoder.
 The kernel path therefore targets pre-exported projection weights and a
 Python-side reference implementation, then compares token-for-token logits
 against the ORT path before any performance number is published.
+
+## CPU reference and harness
+
+- `scripts/paged_attention_reference.py` implements the float32 recurrence for
+  a flat `KV[block_id][slot][kv_head][head_dim]` layout, with `block_size = 16`
+  and a logical-to-physical block table.
+- `scripts/paged_attention_parity.py` compares a candidate output against the
+  reference using `atol=2e-3`, `rtol=2e-2`; it can also generate deterministic
+  synthetic cases for harness testing.
+- `scripts/test_paged_attention.py` covers block boundaries, block-table
+  permutation, out-of-range slots, and the comparison tolerances.
+- These are tensor-level checks. They do not prove SmolLM2 token parity,
+  WebGPU correctness, or a speedup.
 
 ## KV cache layout
 
