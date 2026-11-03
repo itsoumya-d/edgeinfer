@@ -587,4 +587,43 @@ declare class OnnxCausalLM implements LanguageModel {
     truncate(state: ModelState, length: number): ModelState;
 }
 
-export { type ChatMessage, type ChatOptions, type ChatResult, type ClassificationResult, type DecodeResult, type Detection, type DownloadOptions, EdgeInfer, type EdgeInferOptions, type EmbedFn, type EncodingResult, EventEmitter, type GPUCapabilities, type GenerateOptions, type GenerationEvent, type GenerationResult, ImageProcessor, IndexedDbVectorStore, type LanguageModel, type LogitPolicy, MatryoshkaIndex, type MatryoshkaOptions, MemoryVectorStore, MockLanguageModel, ModelCache, type ModelOptions, type ModelState, OnnxCausalLM, type OnnxCausalOptions, RuntimeManager, type SearchOptions, type SearchResult, SpeculativeDecoder, type SpeculativeGenerationResult, type SpeculativeOptions, type SpeculativeStats, Tokenizer, type TokenizerConfig, type VRAMProbeOptions, type VRAMProbeResult, type VectorRecord, type VectorStore, createMatryoshkaEmbedder, dequantizeInt8, embedMatryoshka, l2Normalize, probability, quantizeInt8, residualDistribution, sample, softmax, truncateAndNormalize };
+declare const PAGED_ATTENTION_BLOCK_SIZE = 16;
+declare const PAGED_ATTENTION_MAX_HEAD_DIM = 128;
+declare const PAGED_ATTENTION_WORKGROUP_SIZE = 64;
+type PagedAttentionErrorCode = 'INVALID_PARAMS' | 'WEBGPU_UNAVAILABLE' | 'NON_FINITE_SCORE';
+declare class PagedAttentionError extends Error {
+    readonly code: PagedAttentionErrorCode;
+    constructor(code: PagedAttentionErrorCode, message: string);
+}
+interface PagedAttentionParams {
+    device: GPUDevice;
+    /** Single layer slice; the cache layout is [block][slot][kv_head][head_dim]. */
+    layer: number;
+    pastLen: number;
+    numQueryHeads: number;
+    numKvHeads: number;
+    headDim: number;
+    maxSeqLen: number;
+    /** Must be 16. Present for forward compatibility and explicitness. */
+    blockSize?: number;
+    /** Defaults to 1 / sqrt(headDim). */
+    scale?: number;
+    /** Flat [numQueryHeads * headDim], row-major. */
+    query: Float32Array;
+    /** Flat [numBlocks * blockSize * numKvHeads * headDim] for ONE layer. */
+    keyCache: Float32Array;
+    /** Same shape as keyCache. */
+    valueCache: Float32Array;
+    /** Logical -> physical block ids, a permutation of [0, numBlocks). */
+    blockTable: Uint32Array;
+}
+interface PagedAttentionResult {
+    /** Flat [numQueryHeads * headDim], row-major. */
+    output: Float32Array;
+}
+declare function runPagedAttention(params: PagedAttentionParams): Promise<PagedAttentionResult>;
+
+/** WGSL source for the paged-attention decode kernel (float32, single layer). */
+declare const PAGED_ATTENTION_WGSL: string;
+
+export { type ChatMessage, type ChatOptions, type ChatResult, type ClassificationResult, type DecodeResult, type Detection, type DownloadOptions, EdgeInfer, type EdgeInferOptions, type EmbedFn, type EncodingResult, EventEmitter, type GPUCapabilities, type GenerateOptions, type GenerationEvent, type GenerationResult, ImageProcessor, IndexedDbVectorStore, type LanguageModel, type LogitPolicy, MatryoshkaIndex, type MatryoshkaOptions, MemoryVectorStore, MockLanguageModel, ModelCache, type ModelOptions, type ModelState, OnnxCausalLM, type OnnxCausalOptions, PAGED_ATTENTION_BLOCK_SIZE, PAGED_ATTENTION_MAX_HEAD_DIM, PAGED_ATTENTION_WGSL, PAGED_ATTENTION_WORKGROUP_SIZE, PagedAttentionError, type PagedAttentionErrorCode, type PagedAttentionParams, type PagedAttentionResult, RuntimeManager, type SearchOptions, type SearchResult, SpeculativeDecoder, type SpeculativeGenerationResult, type SpeculativeOptions, type SpeculativeStats, Tokenizer, type TokenizerConfig, type VRAMProbeOptions, type VRAMProbeResult, type VectorRecord, type VectorStore, createMatryoshkaEmbedder, dequantizeInt8, embedMatryoshka, l2Normalize, probability, quantizeInt8, residualDistribution, runPagedAttention, sample, softmax, truncateAndNormalize };

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Paged attention WebGPU parity</title>
+  <style>
+    body { font: 15px/1.5 system-ui, sans-serif; margin: 32px; max-width: 900px; }
+    h1 { font-size: 22px; }
+    #status { padding: 10px 14px; border-radius: 8px; background: #eee; display: inline-block; }
+    #status.pass { background: #d7f5e2; }
+    #status.fail { background: #ffd9d9; }
+    table { border-collapse: collapse; margin-top: 20px; width: 100%; }
+    th, td { border-bottom: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+    code { font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>Paged attention WebGPU parity</h1>
+  <p>Runs the 20-case synthetic fixture through the WGSL kernel and compares it
+  with the Python float32 reference.</p>
+  <div id="status">running...</div>
+  <table id="results"><thead><tr><th>Case</th><th>Status</th><th>Max abs</th></tr></thead><tbody></tbody></table>
+  <script type="module">
+    const status = document.getElementById("status");
+    const tbody = document.querySelector("#results tbody");
+
+    function flatten(value, depth) {
+      return new Float32Array(value.flat(depth));
+    }
+
+    function compare(actual, expected, atol, rtol) {
+      let maxAbs = 0;
+      let failures = 0;
+      for (let row = 0; row < expected.length; row += 1) {
+        for (let col = 0; col < expected[row].length; col += 1) {
+          const want = expected[row][col];
+          const got = actual[row * expected[row].length + col];
+          const absolute = Math.abs(want - got);
+          const relative = absolute / Math.max(Math.abs(want), 1e-12);
+          maxAbs = Math.max(maxAbs, absolute);
+          if (absolute > atol && relative > rtol) failures += 1;
+        }
+      }
+      return { ok: failures === 0, maxAbs, failures };
+    }
+
+    (async () => {
+      try {
+        const { runPagedAttention } = await import("./paged-attention.bundle.js");
+        if (!navigator.gpu) throw new Error("navigator.gpu is unavailable");
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) throw new Error("requestAdapter returned null");
+        const device = await adapter.requestDevice();
+        const fixture = await (await fetch("../fixtures/paged-attention-20.json", { cache: "no-store" })).json();
+        const kvSizes = new Set(
+          fixture.cases.map((item) => {
+            const cache = item.cache;
+            const blocks = Math.ceil(cache.max_seq_len / cache.block_size);
+            return blocks * cache.block_size * cache.num_kv_heads * cache.head_dim * 4;
+          })
+        );
+        const bufferCreates = [];
+        const createBuffer = device.createBuffer.bind(device);
+        device.createBuffer = (descriptor) => {
+          bufferCreates.push({ size: descriptor.size, usage: descriptor.usage });
+          return createBuffer(descriptor);
+        };
+        const results = [];
+        for (const item of fixture.cases) {
+          const cache = item.cache;
+          const layer = cache.layers[item.layer ?? 0];
+          try {
+            const output = await runPagedAttention({
+              device,
+              layer: item.layer ?? 0,
+              pastLen: item.past_len,
+              numQueryHeads: item.q.length,
+              numKvHeads: cache.num_kv_heads,
+              headDim: cache.head_dim,
+              maxSeqLen: cache.max_seq_len,
+              blockSize: cache.block_size,
+              query: flatten(item.q, 2),
+              keyCache: flatten(layer.k, 3),
+              valueCache: flatten(layer.v, 3),
+              blockTable: Uint32Array.from(cache.block_table)
+            });
+            const verdict = compare(output.output, item.expected, fixture.atol, fixture.rtol);
+            results.push({ name: item.name, ...verdict });
+          } catch (error) {
+            results.push({ name: item.name, ok: false, error: String(error) });
+          }
+        }
+        const failed = results.filter((entry) => !entry.ok);
+        const forbidden = GPUBufferUsage.COPY_SRC | GPUBufferUsage.MAP_READ;
+        const kvViolations = bufferCreates.filter(
+          (descriptor) => kvSizes.has(descriptor.size) && (descriptor.usage & forbidden) !== 0
+        );
+        const summary = {
+          ok: failed.length === 0 && kvViolations.length === 0,
+          passed: results.length - failed.length,
+          failed: failed.length,
+          zeroReadback: kvViolations.length === 0,
+          kvBufferCreates: bufferCreates.filter((descriptor) => kvSizes.has(descriptor.size)).length,
+          adapter: {
+            features: [...adapter.features],
+            vendor: adapter.info?.vendor ?? "unknown",
+            architecture: adapter.info?.architecture ?? "unknown"
+          },
+          cases: results
+        };
+        window.__pagedAttentionResult = summary;
+        status.className = summary.ok ? "pass" : "fail";
+        status.textContent = summary.ok
+          ? `PASS — ${summary.passed}/${results.length} cases`
+          : `FAIL — ${summary.failed}/${results.length} cases`;
+        for (const entry of results) {
+          const row = document.createElement("tr");
+          row.innerHTML = `<td>${entry.name}</td><td>${entry.ok ? "PASS" : "FAIL"}</td><td>${entry.maxAbs?.toFixed(6) ?? entry.error ?? ""}</td>`;
+          tbody.appendChild(row);
+        }
+      } catch (error) {
+        const summary = { ok: false, fatal: String(error) };
+        window.__pagedAttentionResult = summary;
+        status.className = "fail";
+        status.textContent = `FAIL — ${String(error)}`;
+      }
+    })();
+  </script>
+</body>
+</html>

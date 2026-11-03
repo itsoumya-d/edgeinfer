@@ -54,6 +54,7 @@
   "author": "Soumya Debnath",
   "license": "MIT",
   "devDependencies": {
+    "@webgpu/types": "^0.1.74",
     "fake-indexeddb": "^6.2.7",
     "tsup": "^8.0.0",
     "typescript": "^5.0.0"
