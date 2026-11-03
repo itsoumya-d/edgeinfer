@@ -1,11 +1,11 @@
 // Regression tests for cased BPE wiring and int64 tensor outputs.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const { Tokenizer } = await import(join(__dirname, '../dist/index.mjs'));
+const { Tokenizer } = await import(pathToFileURL(join(__dirname, '../dist/index.mjs')).href);
 
 const vocab = {
   h: 0,

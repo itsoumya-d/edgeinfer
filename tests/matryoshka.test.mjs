@@ -3,7 +3,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import 'fake-indexeddb/auto';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const {
@@ -14,7 +14,7 @@ const {
   dequantizeInt8,
   quantizeInt8,
   truncateAndNormalize,
-} = await import(join(__dirname, '../dist/index.mjs'));
+} = await import(pathToFileURL(join(__dirname, '../dist/index.mjs')).href);
 
 function seeded(seed) {
   let state = seed >>> 0;

@@ -2,11 +2,11 @@
 // ONNX session. No model download or GPU is required.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const { EdgeInfer, Tokenizer } = await import(join(__dirname, '../dist/index.mjs'));
+const { EdgeInfer, Tokenizer } = await import(pathToFileURL(join(__dirname, '../dist/index.mjs')).href);
 
 test('generate reuses KV-cache inputs and stops at EOS', async () => {
   const tokenizer = new Tokenizer({ vocab: { a: 2, b: 3 }, unkTokenId: 99 });
