@@ -99,8 +99,8 @@ considered correct.
 
 - Training or fine-tuning.
 - Quantized KV cache (the first version is `f16`).
-- Multi-query/grouped-query attention beyond the layout above; GQA is a
-  follow-up once parity is established.
+- Multi-query attention and GQA-specific tuning. The CPU reference supports the
+  standard GQA head mapping; the WGSL path is not yet verified for GQA.
 
 ## Integration
 

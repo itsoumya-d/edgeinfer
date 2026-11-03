@@ -46,6 +46,27 @@ def make_cache(past_len: int, num_heads: int = 2, head_dim: int = 3, seed: int =
 
 
 class PagedAttentionReferenceTests(unittest.TestCase):
+    def test_gqa_matches_dense_softmax(self):
+        cache, keys, values = make_cache(17, num_heads=2, head_dim=3, seed=17)
+        q = [
+            [0.2, -0.1, 0.7],
+            [0.3, 0.4, -0.2],
+            [0.8, -0.5, 0.1],
+            [0.0, 0.6, 0.9],
+        ]
+        scale = 0.5
+        actual = paged_attention(q, cache, 0, 17, scale=scale)
+        expected = dense_attention(q, keys, values, 17, scale=scale)
+        self.assertEqual(len(actual), 4)
+        for actual_row, expected_row in zip(actual, expected):
+            for actual_value, expected_value in zip(actual_row, expected_row):
+                self.assertAlmostEqual(actual_value, expected_value, places=6)
+
+    def test_query_heads_must_be_a_multiple_of_kv_heads(self):
+        cache, _, _ = make_cache(1, num_heads=2, head_dim=3, seed=1)
+        with self.assertRaises(ValueError):
+            paged_attention([[1.0, 2.0, 3.0]] * 3, cache, 0, 1)
+
     def test_matches_dense_softmax_for_block_boundaries(self):
         for past_len in [1, 15, 16, 17, 31, 32]:
             with self.subTest(past_len=past_len):
