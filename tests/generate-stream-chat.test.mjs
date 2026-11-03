@@ -1,11 +1,11 @@
 // Streaming generation and chat templates against a deterministic mock session.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const { EdgeInfer, Tokenizer } = await import(join(__dirname, '../dist/index.mjs'));
+const { EdgeInfer, Tokenizer } = await import(pathToFileURL(join(__dirname, '../dist/index.mjs')).href);
 
 function createSession({ tokens = [3, 2], vocabSize = 4 } = {}) {
   let calls = 0;

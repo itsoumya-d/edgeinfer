@@ -2,7 +2,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const {
@@ -10,7 +10,7 @@ const {
   MockLanguageModel,
   residualDistribution,
   softmax,
-} = await import(join(__dirname, '../dist/index.mjs'));
+} = await import(pathToFileURL(join(__dirname, '../dist/index.mjs')).href);
 
 function logDist(probabilities) {
   return Float32Array.from(probabilities.map((p) => (p > 0 ? Math.log(p) : -50)));

@@ -3,10 +3,10 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const { RuntimeManager } = await import(join(__dirname, '../dist/index.mjs'));
+const { RuntimeManager } = await import(pathToFileURL(join(__dirname, '../dist/index.mjs')).href);
 
 const MIB = 1024 * 1024;
 
