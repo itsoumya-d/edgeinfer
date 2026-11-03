@@ -29,6 +29,20 @@ against the ORT path before any performance number is published.
 - These are tensor-level checks. They do not prove SmolLM2 token parity,
   WebGPU correctness, or a speedup.
 
+## ORT baseline
+
+- `scripts/make_smollm2_prompts.py` tokenizes 20 fixed chat prompts with the
+  local SmolLM2 tokenizer.
+- `scripts/smollm2_ort_baseline.mjs` runs the public
+  `HuggingFaceTB/SmolLM2-135M-Instruct` FP16 ONNX export through
+  `onnxruntime-web` on the CPU provider, using `past_key_values.*` and
+  `present.*` across 30 layers.
+- `scripts/fixtures/smollm2-135m-20-baseline.json` records generated token IDs,
+  chosen logits, and top-5 logits. It contains **542 generated tokens** across
+  20 prompts (some stop at EOS before 32).
+- This is an ORT token baseline, not WGSL parity. No paged-attention kernel is
+  involved in producing it.
+
 ## KV cache layout
 
 The cache is a flat `f16` storage buffer per layer:
