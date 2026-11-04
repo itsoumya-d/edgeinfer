@@ -1,10 +1,14 @@
 # WGSL paged-attention design note
 
 Status: **f16 KV WGSL kernel implemented and browser-tested on synthetic
-cases**. It passes 20/20 fixture cases on an NVIDIA Turing adapter (Chrome 156)
-with max absolute error **4.79e-8**. No SmolLM2 token parity, validation-layer
-trace, memory-within-5% measurement, or performance benchmark is shipped yet.
-The SDK still documents that GPUBuffer-resident paged KV is not wired into
+cases and on real SmolLM2 K/V tensors**. It passes 20/20 synthetic cases on an
+NVIDIA Turing adapter (Chrome 156) with max absolute error **4.79e-8**, and
+20/20 real-geometry cases (9 query heads, 3 KV heads, head_dim 64, real ORT
+<em>present.*</em> tensors) with max absolute error **3.53e-8**. Peak KV memory
+is **0.033%** over the analytic bound (2,949,120 → 2,950,080 bytes incl. block
+tables) — well within the 5% gate. No full token/logit decode parity,
+validation-layer trace, or performance benchmark exists yet. The SDK still
+documents that GPUBuffer-resident paged KV is not wired into
 `EdgeInfer.generate()`.
 
 ## Why a separate kernel path is required
@@ -114,7 +118,23 @@ Measured on 2026-11-03 in Chrome 156 on the RTX 2060 (NVIDIA Turing adapter):
 
 | Cases | Passed | Failed | Max absolute error | Zero-Readback |
 |---:|---:|---:|---:|---|
-| 20 | **20** | 0 | **4.79e-8** | **40/40 KV creates clean** |
+| 20 (synthetic) | **20** | 0 | **4.79e-8** | **40/40 KV creates clean** |
+
+Measured on 2026-11-04 in Chrome 156 on the RTX 2060 (NVIDIA Turing adapter),
+real SmolLM2 geometry (9 query heads, 3 KV heads, head_dim 64, max_seq_len 128,
+f16 KV from ORT `present.*`):
+
+| Cases | Passed | Failed | Max absolute error | Zero-Readback |
+|---:|---:|---:|---:|---|
+| 20 (real geometry) | **20** | 0 | **3.53e-8** | **40/40 KV creates clean** |
+
+The CPU oracle is `scripts/smollm2_attention_oracle.mjs` →
+`scripts/fixtures/smollm2-realgeometry-reference.json`; the browser result is
+`scripts/fixtures/smollm2-realgeometry-result.json`. This is attention-geometry
+parity against the CPU oracle, not full decode token/logit parity. It is the
+second half of the "parity" gate: the kernel correctly implements online
+softmax over real model-geometry caches; chaining it into a full decoder is
+still required.
 
 The fixture includes MHA and GQA cases. `zero_readback` is a runtime
 buffer-usage capability check: no KV-sized buffer is created with `COPY_SRC` or
@@ -124,7 +144,30 @@ synthetic attention tensors, not SmolLM2 logits.
 The kernel is exported as an opt-in building block (`runPagedAttention`) and is
 not wired into `EdgeInfer.generate()`; the ORT path remains the default.
 
-## Acceptance gates
+## Memory accounting
+
+Peak KV on the real model geometry (30 layers, 3 KV heads, head_dim 64,
+max_seq_len 128, f16, block_size 16, 8 blocks):
+
+| Item | Bytes |
+|---|---:|
+| Analytic bound: `2 × 30 × 3 × 64 × 128 × 2` | 2,949,120 |
+| Allocated paged KV: `2 × 30 × 8 × 16 × 3 × 64 × 2` | 2,949,120 |
+| Block tables: `8 × 4 × 30` | 960 |
+| **Total** | **2,950,080** |
+| **Overhead** | **0.033%** |
+
+Run `node scripts/kv_memory_accounting.mjs` to recompute. The 5% gate passes.
+
+## Acceptance gates (status)
+
+| # | Gate | Status |
+|---|---|---|
+| 1 | Real-geometry attention parity (9/3/64, real ORT tensors, CPU oracle) | **PASS 20/20** (max abs 3.53e-8) — not full token/logit decode parity |
+| 2 | Zero readback — validation-layer `mapAsync` trace | buffer-usage check 40/40 clean; **trace still pending** |
+| 3 | Peak KV within 5% of analytic bound | **PASS** — 0.033% overhead |
+| 4 | p50/p95 decode latency on two devices | not measured |
+| 5 | `WEBGPU_UNAVAILABLE` fallback flag | present in `PagedAttentionError` code; no SDK wiring yet |
 
 1. **Parity:** greedy decode for 32 tokens matches the ORT baseline on
    SmolLM2-135M-Instruct for at least 20 prompts.
