@@ -35,7 +35,7 @@ Real exported symbols: `EdgeInfer`, `EventEmitter`, `ImageProcessor`, `ModelCach
   truncation.
 - **ONNX Runtime Web causal-LM adapter** (`OnnxCausalLM`) for standard
   `input_ids`/`attention_mask` exports.
-- MIT licensed, no license key, 106 tests.
+- MIT licensed, no license key, 113 tests.
 
 ## Installation
 
@@ -73,6 +73,21 @@ npm install
 npm run build
 ```
 Then import from `./dist/index.mjs` or `./dist/index.js`.
+
+### Tests and coverage
+
+```bash
+npm run build
+npm test
+npm run test:coverage
+```
+
+`test:coverage` runs the Node test suite under c8, remaps the built bundles
+back to `src/` through the tsup source maps, and enforces a floor of **80%
+lines, 75% branches, and 60% functions**. The local measurement on 2026-11-04
+(Node 26.3.0) is **82.99% lines, 84.30% branches, 65.83% functions**. The gate
+is a regression check, not a quality claim; `onnx-lm.ts` is the least-covered
+module.
 
 ---
 
