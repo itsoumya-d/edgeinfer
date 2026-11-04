@@ -58,5 +58,8 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Coverage gate
+        run: npm run test:coverage
+
       - name: Pack check
         run: npm run pack:check

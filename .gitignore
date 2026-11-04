@@ -4,3 +4,4 @@ dist/*.map
 __pycache__/
 *.pyc
 models/
+coverage/
