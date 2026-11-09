@@ -62,10 +62,34 @@
           })
         );
         const bufferCreates = [];
+        const bufferDescriptors = new Map();
         const createBuffer = device.createBuffer.bind(device);
         device.createBuffer = (descriptor) => {
+          const buffer = createBuffer(descriptor);
           bufferCreates.push({ size: descriptor.size, usage: descriptor.usage });
-          return createBuffer(descriptor);
+          bufferDescriptors.set(buffer, descriptor);
+          return buffer;
+        };
+        const mapAsyncCalls = [];
+        const getMappedRangeCalls = [];
+        const originalMapAsync = GPUBuffer.prototype.mapAsync;
+        const originalGetMappedRange = GPUBuffer.prototype.getMappedRange;
+        GPUBuffer.prototype.mapAsync = function (...args) {
+          const descriptor = bufferDescriptors.get(this);
+          mapAsyncCalls.push({
+            size: descriptor?.size ?? null,
+            usage: descriptor?.usage ?? null,
+            mode: args[0] ?? null,
+          });
+          return originalMapAsync.apply(this, args);
+        };
+        GPUBuffer.prototype.getMappedRange = function (...args) {
+          const descriptor = bufferDescriptors.get(this);
+          getMappedRangeCalls.push({
+            size: descriptor?.size ?? null,
+            usage: descriptor?.usage ?? null,
+          });
+          return originalGetMappedRange.apply(this, args);
         };
         const results = [];
         const candidateCases = [];
@@ -108,11 +132,16 @@
         const kvViolations = bufferCreates.filter(
           (descriptor) => kvSizes.has(descriptor.size) && (descriptor.usage & forbidden) !== 0
         );
+        const kvMapAsyncCalls = mapAsyncCalls.filter((call) => kvSizes.has(call.size));
+        const kvGetMappedRangeCalls = getMappedRangeCalls.filter((call) => kvSizes.has(call.size));
         const summary = {
-          ok: failed.length === 0 && kvViolations.length === 0,
+          ok: failed.length === 0 && kvViolations.length === 0 && kvMapAsyncCalls.length === 0 && kvGetMappedRangeCalls.length === 0,
           passed: results.length - failed.length,
           failed: failed.length,
-          zeroReadback: kvViolations.length === 0,
+          zeroReadback: kvViolations.length === 0 && kvMapAsyncCalls.length === 0 && kvGetMappedRangeCalls.length === 0,
+          mapAsyncCalls: mapAsyncCalls.length,
+          kvMapAsyncCalls: kvMapAsyncCalls.length,
+          kvGetMappedRangeCalls: kvGetMappedRangeCalls.length,
           kvBufferCreates: bufferCreates.filter((descriptor) => kvSizes.has(descriptor.size)).length,
           candidate: {
             cases: candidateCases,

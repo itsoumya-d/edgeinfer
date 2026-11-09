@@ -20,6 +20,9 @@
   "atol": 0.002,
   "rtol": 0.02,
   "zero_readback": true,
+  "map_async_calls": 40,
+  "kv_map_async_calls": 0,
+  "kv_get_mapped_range_calls": 0,
   "kv_buffer_creates": 40,
   "case_max_abs": [
     0.0,
@@ -43,5 +46,5 @@
     2.1749518380742572e-08,
     4.781838308653974e-08
   ],
-  "note": "Synthetic tensor cases include MHA and GQA; not SmolLM2 logits. zero_readback is a runtime buffer-usage capability check, not a validation-layer trace."
+  "note": "Synthetic tensor cases include MHA and GQA; not SmolLM2 logits. The 40 mapAsync calls are the output/status readbacks; zero target KV buffers and zero KV mapped-range accesses."
 }

@@ -145,10 +145,12 @@ second half of the "parity" gate: the kernel correctly implements online
 softmax over real model-geometry caches; chaining it into a full decoder is
 still required.
 
-The fixture includes MHA and GQA cases. `zero_readback` is a runtime
-buffer-usage capability check: no KV-sized buffer is created with `COPY_SRC` or
-`MAP_READ`; it is not a validation-layer `mapAsync` trace. The fixture is
-synthetic attention tensors, not SmolLM2 logits.
+The fixture includes MHA and GQA cases. Both browser harnesses record buffer
+usage and wrap `GPUBuffer.prototype.mapAsync`/`getMappedRange` during the run.
+Each run produced 40 map calls — the output and status readbacks — and zero
+calls on the 40 KV-sized buffers. This is runtime readback evidence, not a
+validation-layer `mapAsync` trace. The fixture is synthetic attention tensors,
+not SmolLM2 logits.
 
 The kernel is exported as an opt-in building block (`runPagedAttention`) and is
 not wired into `EdgeInfer.generate()`; the ORT path remains the default.
@@ -173,7 +175,7 @@ Run `node scripts/kv_memory_accounting.mjs` to recompute. The 5% gate passes.
 | # | Gate | Status |
 |---|---|---|
 | 1 | Real-geometry attention parity (9/3/64, real ORT tensors, CPU oracle) | **PASS 20/20** (max abs 3.53e-8) — not full token/logit decode parity |
-| 2 | Zero readback — validation-layer `mapAsync` trace | buffer-usage check 40/40 clean; **trace still pending** |
+| 2 | Zero readback — validation-layer `mapAsync` trace | **PASS via runtime trace:** 40 total map calls, 0 on KV buffers; **validation-layer trace still pending** |
 | 3 | Peak KV within 5% of analytic bound | **PASS** — 0.033% overhead |
 | 4 | p50/p95 decode latency on two devices | not measured |
 | 5 | `WEBGPU_UNAVAILABLE` fallback flag | present in `PagedAttentionError` code; no SDK wiring yet |

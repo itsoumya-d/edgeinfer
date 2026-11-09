@@ -14,6 +14,9 @@
   "atol": 0.002,
   "rtol": 0.02,
   "zero_readback": true,
+  "map_async_calls": 40,
+  "kv_map_async_calls": 0,
+  "kv_get_mapped_range_calls": 0,
   "kv_buffer_creates": 40,
   "case_max_abs": [
     1.2598841511723968e-8,
@@ -42,5 +45,5 @@
     "vendor": "nvidia",
     "architecture": "turing"
   },
-  "note": "Real SmolLM2 K/V tensors dumped from ORT present.0.key/present.0.value; compared against CPU oracle. This is attention-geometry parity, not token/logit decode parity."
+  "note": "Real SmolLM2 K/V tensors dumped from ORT present.0.key/present.0.value; compared against CPU oracle. The 40 mapAsync calls are output/status readbacks; zero target KV buffers and zero KV mapped-range accesses. This is attention-geometry parity, not token/logit decode parity."
 }
