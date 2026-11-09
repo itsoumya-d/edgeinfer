@@ -136,7 +136,10 @@ f16 KV from ORT `present.*`):
 
 The CPU oracle is `scripts/smollm2_attention_oracle.mjs` →
 `scripts/fixtures/smollm2-realgeometry-reference.json`; the browser result is
-`scripts/fixtures/smollm2-realgeometry-result.json`. This is attention-geometry
+`scripts/fixtures/smollm2-realgeometry-result.json`. The real-geometry page also
+exposes `window.__pagedAttentionCandidate`, and the exported
+`scripts/fixtures/smollm2-realgeometry-candidate.json` was checked externally
+with `scripts/paged_attention_parity.py` on 2026-11-09. This is attention-geometry
 parity against the CPU oracle, not full decode token/logit parity. It is the
 second half of the "parity" gate: the kernel correctly implements online
 softmax over real model-geometry caches; chaining it into a full decoder is

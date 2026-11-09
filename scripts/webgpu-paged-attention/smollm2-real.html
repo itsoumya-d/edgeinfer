@@ -72,6 +72,7 @@
           return createBuffer(descriptor);
         };
         const results = [];
+        const candidateCases = [];
         for (const item of fixture.cases) {
           const cache = item.cache;
           const layer = cache.layers[item.layer ?? 0];
@@ -89,6 +90,16 @@
               keyCache: flatten(layer.k, 3),
               valueCache: flatten(layer.v, 3),
               blockTable: Uint32Array.from(cache.block_table)
+            });
+            const values = Array.from(output.output);
+            const headDim = cache.head_dim;
+            const rows = [];
+            for (let head = 0; head < item.q.length; head += 1) {
+              rows.push(values.slice(head * headDim, (head + 1) * headDim));
+            }
+            candidateCases.push({
+              name: item.name,
+              output: rows,
             });
             const expected = expectedByName.get(item.name);
             const verdict = compare(output.output, expected, fixture.atol, fixture.rtol);
@@ -108,6 +119,9 @@
           failed: failed.length,
           zeroReadback: kvViolations.length === 0,
           kvBufferCreates: bufferCreates.filter((descriptor) => kvSizes.has(descriptor.size)).length,
+          candidate: {
+            cases: candidateCases,
+          },
           adapter: {
             features: [...adapter.features],
             vendor: adapter.info?.vendor ?? "unknown",
@@ -116,6 +130,7 @@
           cases: results
         };
         window.__pagedAttentionResult = summary;
+        window.__pagedAttentionCandidate = summary.candidate;
         status.className = summary.ok ? "pass" : "fail";
         status.textContent = summary.ok
           ? `PASS — ${summary.passed}/${results.length} cases`
