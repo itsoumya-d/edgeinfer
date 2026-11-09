@@ -111,7 +111,10 @@ considered correct.
 - `scripts/build_parity_fixture.py` builds the 20-case synthetic fixture with
   float32 reference outputs.
 - `scripts/webgpu-paged-attention/index.html` runs the kernel against that
-  fixture; open it from a local HTTP server (not `file://`).
+  fixture; open it from a local HTTP server (not `file://`). It also exposes the
+  raw checker-compatible output as `window.__pagedAttentionCandidate` with
+  `{ cases: [{ name, output: [[number]] }] }` for use with
+  `scripts/paged_attention_parity.py check --case <fixture> --candidate <json>`.
 - `scripts/build-wgsl-harness.mjs` rebuilds the standalone browser bundle.
 
 Measured on 2026-11-03 in Chrome 156 on the RTX 2060 (NVIDIA Turing adapter):

@@ -1,0 +1,388 @@
+{
+  "schema_version": 1,
+  "kind": "smollm2_decode_prep",
+  "date": "2026-11-04",
+  "note": "Prep only: CPU oracle re-verified against the committed real-geometry reference and each baseline prompt mapped to its oracle case. This is not token/logit decode parity.",
+  "baseline": {
+    "path": "scripts\\fixtures\\smollm2-135m-20-baseline.json",
+    "cases": 20,
+    "totalTokens": 542
+  },
+  "geometry": {
+    "path": "scripts\\fixtures\\smollm2-realgeometry-12.json",
+    "cases": 20,
+    "atol": 0.002,
+    "rtol": 0.02
+  },
+  "reference": {
+    "path": "scripts\\fixtures\\smollm2-realgeometry-reference.json",
+    "cases": 20
+  },
+  "oracleCheck": {
+    "ok": true,
+    "failures": 0,
+    "maxAbs": 0
+  },
+  "promptToCase": [
+    {
+      "case": "prompt-01",
+      "baselineTokens": 8,
+      "pastLen": 37,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "case": "prompt-02",
+      "baselineTokens": 32,
+      "pastLen": 36,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "case": "prompt-03",
+      "baselineTokens": 11,
+      "pastLen": 39,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "case": "prompt-04",
+      "baselineTokens": 32,
+      "pastLen": 38,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "case": "prompt-05",
+      "baselineTokens": 32,
+      "pastLen": 38,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "case": "prompt-06",
+      "baselineTokens": 32,
+      "pastLen": 40,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "case": "prompt-07",
+      "baselineTokens": 26,
+      "pastLen": 37,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "case": "prompt-08",
+      "baselineTokens": 32,
+      "pastLen": 37,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "case": "prompt-09",
+      "baselineTokens": 32,
+      "pastLen": 41,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "case": "prompt-10",
+      "baselineTokens": 32,
+      "pastLen": 38,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "case": "prompt-11",
+      "baselineTokens": 32,
+      "pastLen": 36,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "case": "prompt-12",
+      "baselineTokens": 32,
+      "pastLen": 35,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "case": "prompt-13",
+      "baselineTokens": 32,
+      "pastLen": 40,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "case": "prompt-14",
+      "baselineTokens": 32,
+      "pastLen": 37,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "case": "prompt-15",
+      "baselineTokens": 32,
+      "pastLen": 39,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "case": "prompt-16",
+      "baselineTokens": 9,
+      "pastLen": 36,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "case": "prompt-17",
+      "baselineTokens": 8,
+      "pastLen": 37,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "case": "prompt-18",
+      "baselineTokens": 32,
+      "pastLen": 38,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "case": "prompt-19",
+      "baselineTokens": 32,
+      "pastLen": 41,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    },
+    {
+      "case": "prompt-20",
+      "baselineTokens": 32,
+      "pastLen": 36,
+      "numQueryHeads": 9,
+      "numKvHeads": 3,
+      "headDim": 64,
+      "blockTable": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ]
+    }
+  ]
+}
