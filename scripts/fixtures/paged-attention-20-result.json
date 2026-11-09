@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "kind": "paged_attention_webgpu_result",
-  "date": "2026-11-03",
+  "date": "2026-11-09",
   "browser": "Chrome 156",
   "adapter": {
     "vendor": "nvidia",
@@ -9,11 +9,14 @@
     "features": ["shader-f16", "subgroups", "timestamp-query"]
   },
   "fixture": "paged-attention-20.json",
+  "candidate_file": "paged-attention-20-candidate.json",
+  "external_checker": "scripts/paged_attention_parity.py",
   "kv_dtype": "f16",
   "cases": 20,
   "passed": 20,
   "failed": 0,
   "max_abs": 4.7858070229001015e-08,
+  "max_rel": 4.8993613118460334e-06,
   "atol": 0.002,
   "rtol": 0.02,
   "zero_readback": true,

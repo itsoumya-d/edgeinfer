@@ -115,6 +115,9 @@ considered correct.
   raw checker-compatible output as `window.__pagedAttentionCandidate` with
   `{ cases: [{ name, output: [[number]] }] }` for use with
   `scripts/paged_attention_parity.py check --case <fixture> --candidate <json>`.
+  The checked-in `paged-attention-20-candidate.json` was exported from that page
+  on 2026-11-09 and re-verified with the external Python checker; it does not
+  replace the in-page comparison or the CPU oracle.
 - `scripts/build-wgsl-harness.mjs` rebuilds the standalone browser bundle.
 
 Measured on 2026-11-03 in Chrome 156 on the RTX 2060 (NVIDIA Turing adapter):
