@@ -626,4 +626,26 @@ declare function runPagedAttention(params: PagedAttentionParams): Promise<PagedA
 /** WGSL source for the paged-attention decode kernel (float32, single layer). */
 declare const PAGED_ATTENTION_WGSL: string;
 
-export { type ChatMessage, type ChatOptions, type ChatResult, type ClassificationResult, type DecodeResult, type Detection, type DownloadOptions, EdgeInfer, type EdgeInferOptions, type EmbedFn, type EncodingResult, EventEmitter, type GPUCapabilities, type GenerateOptions, type GenerationEvent, type GenerationResult, ImageProcessor, IndexedDbVectorStore, type LanguageModel, type LogitPolicy, MatryoshkaIndex, type MatryoshkaOptions, MemoryVectorStore, MockLanguageModel, ModelCache, type ModelOptions, type ModelState, OnnxCausalLM, type OnnxCausalOptions, PAGED_ATTENTION_BLOCK_SIZE, PAGED_ATTENTION_MAX_HEAD_DIM, PAGED_ATTENTION_WGSL, PAGED_ATTENTION_WORKGROUP_SIZE, PagedAttentionError, type PagedAttentionErrorCode, type PagedAttentionParams, type PagedAttentionResult, RuntimeManager, type SearchOptions, type SearchResult, SpeculativeDecoder, type SpeculativeGenerationResult, type SpeculativeOptions, type SpeculativeStats, Tokenizer, type TokenizerConfig, type VRAMProbeOptions, type VRAMProbeResult, type VectorRecord, type VectorStore, createMatryoshkaEmbedder, dequantizeInt8, embedMatryoshka, l2Normalize, probability, quantizeInt8, residualDistribution, runPagedAttention, sample, softmax, truncateAndNormalize };
+interface GpuKernelConfig {
+    name: string;
+    wgsl: string;
+    workgroupSize: [number, number, number];
+    elementsCount: number;
+    bytesPerElement?: number;
+}
+interface GpuBenchmarkResult {
+    kernelName: string;
+    durationMs: number;
+    elementsProcessed: number;
+    gflops: number;
+    bandwidthGBs: number;
+    timestampSupported: boolean;
+}
+declare const TENSOR_REDUCTION_WGSL = "\n@group(0) @binding(0) var<storage, read> input_data: array<f32>;\n@group(0) @binding(1) var<storage, read_write> output_data: array<f32>;\n\nvar<workgroup> sdata: array<f32, 64>;\n\n@compute @workgroup_size(64, 1, 1)\nfn main(\n  @builtin(global_invocation_id) global_id: vec3<u32>,\n  @builtin(local_invocation_id) local_id: vec3<u32>,\n  @builtin(workgroup_id) group_id: vec3<u32>\n) {\n  let tid = local_id.x;\n  let idx = global_id.x;\n  sdata[tid] = input_data[idx];\n  workgroupBarrier();\n\n  var s: u32 = 32u;\n  while (s > 0u) {\n    if (tid < s) {\n      sdata[tid] = sdata[tid] + sdata[tid + s];\n    }\n    workgroupBarrier();\n    s = s >> 1u;\n  }\n\n  if (tid == 0u) {\n    output_data[group_id.x] = sdata[0];\n  }\n}\n";
+declare function calculateKernelThroughput(elements: number, durationMs: number, bytesPerElement?: number, flopsPerElement?: number): {
+    gflops: number;
+    bandwidthGBs: number;
+};
+declare function cpuReferenceReduction(data: Float32Array): number;
+
+export { type ChatMessage, type ChatOptions, type ChatResult, type ClassificationResult, type DecodeResult, type Detection, type DownloadOptions, EdgeInfer, type EdgeInferOptions, type EmbedFn, type EncodingResult, EventEmitter, type GPUCapabilities, type GenerateOptions, type GenerationEvent, type GenerationResult, type GpuBenchmarkResult, type GpuKernelConfig, ImageProcessor, IndexedDbVectorStore, type LanguageModel, type LogitPolicy, MatryoshkaIndex, type MatryoshkaOptions, MemoryVectorStore, MockLanguageModel, ModelCache, type ModelOptions, type ModelState, OnnxCausalLM, type OnnxCausalOptions, PAGED_ATTENTION_BLOCK_SIZE, PAGED_ATTENTION_MAX_HEAD_DIM, PAGED_ATTENTION_WGSL, PAGED_ATTENTION_WORKGROUP_SIZE, PagedAttentionError, type PagedAttentionErrorCode, type PagedAttentionParams, type PagedAttentionResult, RuntimeManager, type SearchOptions, type SearchResult, SpeculativeDecoder, type SpeculativeGenerationResult, type SpeculativeOptions, type SpeculativeStats, TENSOR_REDUCTION_WGSL, Tokenizer, type TokenizerConfig, type VRAMProbeOptions, type VRAMProbeResult, type VectorRecord, type VectorStore, calculateKernelThroughput, cpuReferenceReduction, createMatryoshkaEmbedder, dequantizeInt8, embedMatryoshka, l2Normalize, probability, quantizeInt8, residualDistribution, runPagedAttention, sample, softmax, truncateAndNormalize };
