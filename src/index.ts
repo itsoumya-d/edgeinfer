@@ -28,3 +28,13 @@ export type {
   PagedAttentionParams,
   PagedAttentionResult,
 } from './webgpu/paged-attention';
+
+export {
+  TENSOR_REDUCTION_WGSL,
+  calculateKernelThroughput,
+  cpuReferenceReduction,
+} from './webgpu/kernel-profiler';
+export type {
+  GpuKernelConfig,
+  GpuBenchmarkResult,
+} from './webgpu/kernel-profiler';
