@@ -236,6 +236,49 @@ declare class ImageProcessor {
     }): Float32Array;
 }
 
+interface AudioFramingOptions {
+    frameSize?: number;
+    hopSize?: number;
+    window?: 'hann' | 'hamming' | 'rectangular';
+    preEmphasis?: number;
+}
+interface MelSpectrogramOptions extends AudioFramingOptions {
+    sampleRate?: number;
+    fftSize?: number;
+    numMelBins?: number;
+    minFreq?: number;
+    maxFreq?: number;
+    logMel?: boolean;
+    epsilon?: number;
+    layout?: 'NTC' | 'NCT';
+}
+interface AudioTensorOutput {
+    data: Float32Array;
+    shape: [number, number, number];
+    numFrames: number;
+    numBins: number;
+}
+declare class StreamingAudioBuffer {
+    private buffer;
+    readonly frameSize: number;
+    readonly hopSize: number;
+    constructor(frameSize?: number, hopSize?: number);
+    get length(): number;
+    reset(): void;
+    push(chunk: Float32Array): Float32Array[];
+    flush(): Float32Array | null;
+}
+declare class AudioProcessor {
+    static hzToMel(hz: number): number;
+    static melToHz(mel: number): number;
+    static applyPreEmphasis(samples: Float32Array, alpha?: number): Float32Array;
+    static getWindow(size: number, type?: 'hann' | 'hamming' | 'rectangular'): Float32Array;
+    static frameAudio(samples: Float32Array, options?: AudioFramingOptions): Float32Array[];
+    static computePowerSpectrum(frame: Float32Array, fftSize?: number): Float32Array;
+    static createMelFilterbank(numMelBins?: number, sampleRate?: number, fftSize?: number, minFreq?: number, maxFreq?: number): Float32Array[];
+    static extractMelSpectrogram(samples: Float32Array, options?: MelSpectrogramOptions): AudioTensorOutput;
+}
+
 interface EdgeInferOptions extends ModelOptions, DownloadOptions {
     tokenizerUrl?: string;
     tokenizerConfig?: TokenizerConfig;
@@ -648,4 +691,4 @@ declare function calculateKernelThroughput(elements: number, durationMs: number,
 };
 declare function cpuReferenceReduction(data: Float32Array): number;
 
-export { type ChatMessage, type ChatOptions, type ChatResult, type ClassificationResult, type DecodeResult, type Detection, type DownloadOptions, EdgeInfer, type EdgeInferOptions, type EmbedFn, type EncodingResult, EventEmitter, type GPUCapabilities, type GenerateOptions, type GenerationEvent, type GenerationResult, type GpuBenchmarkResult, type GpuKernelConfig, ImageProcessor, IndexedDbVectorStore, type LanguageModel, type LogitPolicy, MatryoshkaIndex, type MatryoshkaOptions, MemoryVectorStore, MockLanguageModel, ModelCache, type ModelOptions, type ModelState, OnnxCausalLM, type OnnxCausalOptions, PAGED_ATTENTION_BLOCK_SIZE, PAGED_ATTENTION_MAX_HEAD_DIM, PAGED_ATTENTION_WGSL, PAGED_ATTENTION_WORKGROUP_SIZE, PagedAttentionError, type PagedAttentionErrorCode, type PagedAttentionParams, type PagedAttentionResult, RuntimeManager, type SearchOptions, type SearchResult, SpeculativeDecoder, type SpeculativeGenerationResult, type SpeculativeOptions, type SpeculativeStats, TENSOR_REDUCTION_WGSL, Tokenizer, type TokenizerConfig, type VRAMProbeOptions, type VRAMProbeResult, type VectorRecord, type VectorStore, calculateKernelThroughput, cpuReferenceReduction, createMatryoshkaEmbedder, dequantizeInt8, embedMatryoshka, l2Normalize, probability, quantizeInt8, residualDistribution, runPagedAttention, sample, softmax, truncateAndNormalize };
+export { type AudioFramingOptions, AudioProcessor, type AudioTensorOutput, type ChatMessage, type ChatOptions, type ChatResult, type ClassificationResult, type DecodeResult, type Detection, type DownloadOptions, EdgeInfer, type EdgeInferOptions, type EmbedFn, type EncodingResult, EventEmitter, type GPUCapabilities, type GenerateOptions, type GenerationEvent, type GenerationResult, type GpuBenchmarkResult, type GpuKernelConfig, ImageProcessor, IndexedDbVectorStore, type LanguageModel, type LogitPolicy, MatryoshkaIndex, type MatryoshkaOptions, type MelSpectrogramOptions, MemoryVectorStore, MockLanguageModel, ModelCache, type ModelOptions, type ModelState, OnnxCausalLM, type OnnxCausalOptions, PAGED_ATTENTION_BLOCK_SIZE, PAGED_ATTENTION_MAX_HEAD_DIM, PAGED_ATTENTION_WGSL, PAGED_ATTENTION_WORKGROUP_SIZE, PagedAttentionError, type PagedAttentionErrorCode, type PagedAttentionParams, type PagedAttentionResult, RuntimeManager, type SearchOptions, type SearchResult, SpeculativeDecoder, type SpeculativeGenerationResult, type SpeculativeOptions, type SpeculativeStats, StreamingAudioBuffer, TENSOR_REDUCTION_WGSL, Tokenizer, type TokenizerConfig, type VRAMProbeOptions, type VRAMProbeResult, type VectorRecord, type VectorStore, calculateKernelThroughput, cpuReferenceReduction, createMatryoshkaEmbedder, dequantizeInt8, embedMatryoshka, l2Normalize, probability, quantizeInt8, residualDistribution, runPagedAttention, sample, softmax, truncateAndNormalize };

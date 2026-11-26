@@ -634,6 +634,212 @@ var ImageProcessor = class {
   }
 };
 
+// src/audio-processor.ts
+var StreamingAudioBuffer = class {
+  constructor(frameSize = 400, hopSize = 160) {
+    if (frameSize <= 0 || hopSize <= 0) {
+      throw new Error(`Invalid frameSize (${frameSize}) or hopSize (${hopSize})`);
+    }
+    this.frameSize = frameSize;
+    this.hopSize = hopSize;
+    this.buffer = new Float32Array(0);
+  }
+  get length() {
+    return this.buffer.length;
+  }
+  reset() {
+    this.buffer = new Float32Array(0);
+  }
+  push(chunk) {
+    if (chunk.length === 0) return [];
+    const merged = new Float32Array(this.buffer.length + chunk.length);
+    merged.set(this.buffer, 0);
+    merged.set(chunk, this.buffer.length);
+    const frames = [];
+    let offset = 0;
+    while (offset + this.frameSize <= merged.length) {
+      frames.push(merged.slice(offset, offset + this.frameSize));
+      offset += this.hopSize;
+    }
+    if (offset < merged.length) {
+      this.buffer = merged.slice(offset);
+    } else {
+      this.buffer = new Float32Array(0);
+    }
+    return frames;
+  }
+  flush() {
+    if (this.buffer.length === 0) return null;
+    const remaining = this.buffer;
+    this.reset();
+    return remaining;
+  }
+};
+var AudioProcessor = class _AudioProcessor {
+  static hzToMel(hz) {
+    return 2595 * Math.log10(1 + hz / 700);
+  }
+  static melToHz(mel) {
+    return 700 * (Math.pow(10, mel / 2595) - 1);
+  }
+  static applyPreEmphasis(samples, alpha = 0.97) {
+    if (alpha === 0 || samples.length <= 1) {
+      return new Float32Array(samples);
+    }
+    const out = new Float32Array(samples.length);
+    out[0] = samples[0];
+    for (let i = 1; i < samples.length; i++) {
+      out[i] = samples[i] - alpha * samples[i - 1];
+    }
+    return out;
+  }
+  static getWindow(size, type = "hann") {
+    const win = new Float32Array(size);
+    if (type === "rectangular" || size <= 1) {
+      win.fill(1);
+      return win;
+    }
+    const denom = size - 1;
+    for (let i = 0; i < size; i++) {
+      if (type === "hann") {
+        win[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / denom));
+      } else {
+        win[i] = 0.54 - 0.46 * Math.cos(2 * Math.PI * i / denom);
+      }
+    }
+    return win;
+  }
+  static frameAudio(samples, options = {}) {
+    const {
+      frameSize = 400,
+      hopSize = 160,
+      window = "hann",
+      preEmphasis = 0.97
+    } = options;
+    if (frameSize <= 0 || hopSize <= 0) {
+      throw new Error(`Invalid frameSize (${frameSize}) or hopSize (${hopSize})`);
+    }
+    const filtered = _AudioProcessor.applyPreEmphasis(samples, preEmphasis);
+    const win = _AudioProcessor.getWindow(frameSize, window);
+    const frames = [];
+    for (let start = 0; start + frameSize <= filtered.length; start += hopSize) {
+      const frame = new Float32Array(frameSize);
+      for (let i = 0; i < frameSize; i++) {
+        frame[i] = filtered[start + i] * win[i];
+      }
+      frames.push(frame);
+    }
+    return frames;
+  }
+  static computePowerSpectrum(frame, fftSize = 512) {
+    const numBins = Math.floor(fftSize / 2) + 1;
+    const power = new Float32Array(numBins);
+    const frameLen = Math.min(frame.length, fftSize);
+    for (let k = 0; k < numBins; k++) {
+      let real = 0;
+      let imag = 0;
+      const angleStep = 2 * Math.PI * k / fftSize;
+      for (let n = 0; n < frameLen; n++) {
+        const angle = angleStep * n;
+        real += frame[n] * Math.cos(angle);
+        imag -= frame[n] * Math.sin(angle);
+      }
+      power[k] = real * real + imag * imag;
+    }
+    return power;
+  }
+  static createMelFilterbank(numMelBins = 80, sampleRate = 16e3, fftSize = 512, minFreq = 0, maxFreq) {
+    const topFreq = maxFreq ?? sampleRate / 2;
+    const numFreqBins = Math.floor(fftSize / 2) + 1;
+    const minMel = _AudioProcessor.hzToMel(minFreq);
+    const maxMel = _AudioProcessor.hzToMel(topFreq);
+    const melPoints = new Float32Array(numMelBins + 2);
+    const hzPoints = new Float32Array(numMelBins + 2);
+    const binPoints = new Int32Array(numMelBins + 2);
+    for (let i = 0; i < numMelBins + 2; i++) {
+      melPoints[i] = minMel + i * (maxMel - minMel) / (numMelBins + 1);
+      hzPoints[i] = _AudioProcessor.melToHz(melPoints[i]);
+      binPoints[i] = Math.min(
+        numFreqBins - 1,
+        Math.floor((fftSize + 1) * hzPoints[i] / sampleRate)
+      );
+    }
+    const filterbank = [];
+    for (let m = 1; m <= numMelBins; m++) {
+      const filter = new Float32Array(numFreqBins);
+      const left = binPoints[m - 1];
+      const center = binPoints[m];
+      const right = binPoints[m + 1];
+      for (let k = left; k < center; k++) {
+        if (center > left) {
+          filter[k] = (k - left) / (center - left);
+        }
+      }
+      for (let k = center; k <= right; k++) {
+        if (right > center) {
+          filter[k] = (right - k) / (right - center);
+        }
+      }
+      filterbank.push(filter);
+    }
+    return filterbank;
+  }
+  static extractMelSpectrogram(samples, options = {}) {
+    const {
+      sampleRate = 16e3,
+      fftSize = 512,
+      numMelBins = 80,
+      minFreq = 0,
+      maxFreq = 8e3,
+      logMel = true,
+      epsilon = 1e-6,
+      layout = "NTC"
+    } = options;
+    const frames = _AudioProcessor.frameAudio(samples, options);
+    const numFrames = frames.length;
+    if (numFrames === 0) {
+      return {
+        data: new Float32Array(0),
+        shape: layout === "NTC" ? [1, 0, numMelBins] : [1, numMelBins, 0],
+        numFrames: 0,
+        numBins: numMelBins
+      };
+    }
+    const filterbank = _AudioProcessor.createMelFilterbank(
+      numMelBins,
+      sampleRate,
+      fftSize,
+      minFreq,
+      maxFreq
+    );
+    const totalElements = numFrames * numMelBins;
+    const data = new Float32Array(totalElements);
+    for (let f = 0; f < numFrames; f++) {
+      const power = _AudioProcessor.computePowerSpectrum(frames[f], fftSize);
+      for (let m = 0; m < numMelBins; m++) {
+        const filter = filterbank[m];
+        let energy = 0;
+        for (let k = 0; k < filter.length; k++) {
+          energy += power[k] * filter[k];
+        }
+        const val = logMel ? Math.log(Math.max(energy, epsilon)) : energy;
+        if (layout === "NTC") {
+          data[f * numMelBins + m] = val;
+        } else {
+          data[m * numFrames + f] = val;
+        }
+      }
+    }
+    const shape = layout === "NTC" ? [1, numFrames, numMelBins] : [1, numMelBins, numFrames];
+    return {
+      data,
+      shape,
+      numFrames,
+      numBins: numMelBins
+    };
+  }
+};
+
 // src/edgeinfer.ts
 import * as ort2 from "onnxruntime-web";
 function throwIfAborted(signal) {
@@ -2145,6 +2351,7 @@ function cpuReferenceReduction(data) {
   return sum;
 }
 export {
+  AudioProcessor,
   EdgeInfer,
   EventEmitter,
   ImageProcessor,
@@ -2161,6 +2368,7 @@ export {
   PagedAttentionError,
   RuntimeManager,
   SpeculativeDecoder,
+  StreamingAudioBuffer,
   TENSOR_REDUCTION_WGSL,
   Tokenizer,
   calculateKernelThroughput,
