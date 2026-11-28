@@ -349,6 +349,59 @@ WebGPU measurement. Reproduce with `npm run bench:speculative`.
 
 ---
 
+## Agentic Workflow Execution Engine
+
+`edgeinfer` provides a lightweight, typed agentic workflow execution engine (`AgentWorkflowEngine`, `runAgentWorkflow`) designed for on-device and edge AI pipelines. It coordinates multi-step agent reasoning, tool dispatching, conditional execution, and quality/leverage evaluation with per-step timeouts and retries.
+
+### Example
+
+```typescript
+import { runAgentWorkflow, AgentWorkflowError } from 'edgeinfer';
+
+interface ReviewContext {
+  task: string;
+  plan?: string[];
+  reviewed?: boolean;
+}
+
+const report = await runAgentWorkflow<ReviewContext>({
+  name: 'code-review-pipeline',
+  initialContext: { task: 'Verify boundary checks' },
+  steps: [
+    {
+      id: 'plan',
+      name: 'Plan Verification',
+      run: async (ctx) => ({
+        plan: ['Inspect null inputs', 'Verify timeout boundaries', 'Confirm error handling']
+      })
+    },
+    {
+      id: 'verify',
+      name: 'Execute Verification',
+      maxRetries: 2,
+      timeoutMs: 5000,
+      run: async (ctx) => ({
+        reviewed: true
+      })
+    }
+  ],
+  leverageEvaluator: (ctx, steps) => ({
+    score: 0.95,
+    highLeverage: true,
+    rationale: 'Fully autonomous verification with zero manual intervention'
+  })
+});
+
+console.log(report.success); // true
+console.log(report.finalContext.reviewed); // true
+```
+
+### Limits
+- Execution runs entirely in-process without external distributed message queues.
+- State mutation is immutably passed through return deltas; direct in-place mutation of the frozen context is rejected.
+
+---
+
 ## 📄 License
 
 **[MIT](LICENSE)** — free to use, copy, modify, merge, publish, distribute, sublicense, and sell,
