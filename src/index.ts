@@ -14,6 +14,7 @@ export type { DownloadOptions } from './download';
 export * from './matryoshka';
 export * from './speculative';
 export * from './onnx-lm';
+export * from './agent-workflow';
 
 // Opt-in paged-attention building blocks (not wired into EdgeInfer.generate).
 export {

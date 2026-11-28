@@ -630,6 +630,56 @@ declare class OnnxCausalLM implements LanguageModel {
     truncate(state: ModelState, length: number): ModelState;
 }
 
+type AgentWorkflowErrorCode = 'EMPTY_STEPS' | 'MALFORMED_STEP' | 'STEP_TIMEOUT' | 'TOOL_EXECUTION_FAILED' | 'MAX_RETRIES_EXCEEDED' | 'LEVERAGE_EVALUATION_FAILED';
+declare class AgentWorkflowError extends Error {
+    readonly code: AgentWorkflowErrorCode;
+    readonly stepId?: string;
+    readonly cause?: unknown;
+    constructor(code: AgentWorkflowErrorCode, message: string, stepId?: string, options?: {
+        cause?: unknown;
+    });
+}
+interface WorkflowStepResult<TContext> {
+    stepId: string;
+    name: string;
+    durationMs: number;
+    retries: number;
+    success: boolean;
+    delta?: Partial<TContext>;
+}
+interface WorkflowStepConfig<TContext> {
+    id: string;
+    name?: string;
+    run: (context: Readonly<TContext>) => Promise<Partial<TContext> | void>;
+    maxRetries?: number;
+    timeoutMs?: number;
+    condition?: (context: Readonly<TContext>) => boolean;
+}
+interface LeverageScoreReport {
+    score: number;
+    highLeverage: boolean;
+    rationale: string;
+}
+interface AgentWorkflowOptions<TContext> {
+    name: string;
+    steps: WorkflowStepConfig<TContext>[];
+    initialContext: TContext;
+    leverageEvaluator?: (context: Readonly<TContext>, stepHistory: WorkflowStepResult<TContext>[]) => LeverageScoreReport;
+}
+interface AgentWorkflowExecutionReport<TContext> {
+    workflowName: string;
+    success: boolean;
+    finalContext: TContext;
+    totalDurationMs: number;
+    steps: WorkflowStepResult<TContext>[];
+    leverage?: LeverageScoreReport;
+}
+declare class AgentWorkflowEngine<TContext extends Record<string, unknown>> {
+    execute(options: AgentWorkflowOptions<TContext>): Promise<AgentWorkflowExecutionReport<TContext>>;
+    private runWithTimeout;
+}
+declare function runAgentWorkflow<TContext extends Record<string, unknown>>(options: AgentWorkflowOptions<TContext>): Promise<AgentWorkflowExecutionReport<TContext>>;
+
 declare const PAGED_ATTENTION_BLOCK_SIZE = 16;
 declare const PAGED_ATTENTION_MAX_HEAD_DIM = 128;
 declare const PAGED_ATTENTION_WORKGROUP_SIZE = 64;
@@ -691,4 +741,4 @@ declare function calculateKernelThroughput(elements: number, durationMs: number,
 };
 declare function cpuReferenceReduction(data: Float32Array): number;
 
-export { type AudioFramingOptions, AudioProcessor, type AudioTensorOutput, type ChatMessage, type ChatOptions, type ChatResult, type ClassificationResult, type DecodeResult, type Detection, type DownloadOptions, EdgeInfer, type EdgeInferOptions, type EmbedFn, type EncodingResult, EventEmitter, type GPUCapabilities, type GenerateOptions, type GenerationEvent, type GenerationResult, type GpuBenchmarkResult, type GpuKernelConfig, ImageProcessor, IndexedDbVectorStore, type LanguageModel, type LogitPolicy, MatryoshkaIndex, type MatryoshkaOptions, type MelSpectrogramOptions, MemoryVectorStore, MockLanguageModel, ModelCache, type ModelOptions, type ModelState, OnnxCausalLM, type OnnxCausalOptions, PAGED_ATTENTION_BLOCK_SIZE, PAGED_ATTENTION_MAX_HEAD_DIM, PAGED_ATTENTION_WGSL, PAGED_ATTENTION_WORKGROUP_SIZE, PagedAttentionError, type PagedAttentionErrorCode, type PagedAttentionParams, type PagedAttentionResult, RuntimeManager, type SearchOptions, type SearchResult, SpeculativeDecoder, type SpeculativeGenerationResult, type SpeculativeOptions, type SpeculativeStats, StreamingAudioBuffer, TENSOR_REDUCTION_WGSL, Tokenizer, type TokenizerConfig, type VRAMProbeOptions, type VRAMProbeResult, type VectorRecord, type VectorStore, calculateKernelThroughput, cpuReferenceReduction, createMatryoshkaEmbedder, dequantizeInt8, embedMatryoshka, l2Normalize, probability, quantizeInt8, residualDistribution, runPagedAttention, sample, softmax, truncateAndNormalize };
+export { AgentWorkflowEngine, AgentWorkflowError, type AgentWorkflowErrorCode, type AgentWorkflowExecutionReport, type AgentWorkflowOptions, type AudioFramingOptions, AudioProcessor, type AudioTensorOutput, type ChatMessage, type ChatOptions, type ChatResult, type ClassificationResult, type DecodeResult, type Detection, type DownloadOptions, EdgeInfer, type EdgeInferOptions, type EmbedFn, type EncodingResult, EventEmitter, type GPUCapabilities, type GenerateOptions, type GenerationEvent, type GenerationResult, type GpuBenchmarkResult, type GpuKernelConfig, ImageProcessor, IndexedDbVectorStore, type LanguageModel, type LeverageScoreReport, type LogitPolicy, MatryoshkaIndex, type MatryoshkaOptions, type MelSpectrogramOptions, MemoryVectorStore, MockLanguageModel, ModelCache, type ModelOptions, type ModelState, OnnxCausalLM, type OnnxCausalOptions, PAGED_ATTENTION_BLOCK_SIZE, PAGED_ATTENTION_MAX_HEAD_DIM, PAGED_ATTENTION_WGSL, PAGED_ATTENTION_WORKGROUP_SIZE, PagedAttentionError, type PagedAttentionErrorCode, type PagedAttentionParams, type PagedAttentionResult, RuntimeManager, type SearchOptions, type SearchResult, SpeculativeDecoder, type SpeculativeGenerationResult, type SpeculativeOptions, type SpeculativeStats, StreamingAudioBuffer, TENSOR_REDUCTION_WGSL, Tokenizer, type TokenizerConfig, type VRAMProbeOptions, type VRAMProbeResult, type VectorRecord, type VectorStore, type WorkflowStepConfig, type WorkflowStepResult, calculateKernelThroughput, cpuReferenceReduction, createMatryoshkaEmbedder, dequantizeInt8, embedMatryoshka, l2Normalize, probability, quantizeInt8, residualDistribution, runAgentWorkflow, runPagedAttention, sample, softmax, truncateAndNormalize };

@@ -30,6 +30,8 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // src/index.ts
 var index_exports = {};
 __export(index_exports, {
+  AgentWorkflowEngine: () => AgentWorkflowEngine,
+  AgentWorkflowError: () => AgentWorkflowError,
   AudioProcessor: () => AudioProcessor,
   EdgeInfer: () => EdgeInfer,
   EventEmitter: () => EventEmitter,
@@ -59,6 +61,7 @@ __export(index_exports, {
   probability: () => probability,
   quantizeInt8: () => quantizeInt8,
   residualDistribution: () => residualDistribution,
+  runAgentWorkflow: () => runAgentWorkflow,
   runPagedAttention: () => runPagedAttention,
   sample: () => sample,
   softmax: () => softmax,
@@ -2017,6 +2020,130 @@ var OnnxCausalLM = class {
   }
 };
 
+// src/agent-workflow.ts
+var AgentWorkflowError = class extends Error {
+  constructor(code, message, stepId, options) {
+    super(`[${code}] ${message}${stepId ? ` (step: ${stepId})` : ""}`);
+    this.name = "AgentWorkflowError";
+    this.code = code;
+    this.stepId = stepId;
+    if (options && "cause" in options) {
+      this.cause = options.cause;
+    }
+  }
+};
+var AgentWorkflowEngine = class {
+  async execute(options) {
+    if (!options || !Array.isArray(options.steps) || options.steps.length === 0) {
+      throw new AgentWorkflowError("EMPTY_STEPS", "Workflow must contain at least one step");
+    }
+    const startTime = Date.now();
+    let currentContext = { ...options.initialContext };
+    const stepResults = [];
+    for (const step of options.steps) {
+      if (!step || typeof step.id !== "string" || !step.id.trim() || typeof step.run !== "function") {
+        throw new AgentWorkflowError(
+          "MALFORMED_STEP",
+          "Step configuration must have a valid id and run function",
+          step?.id
+        );
+      }
+      if (step.condition && !step.condition(currentContext)) {
+        continue;
+      }
+      const maxRetries = typeof step.maxRetries === "number" && step.maxRetries >= 0 ? step.maxRetries : 0;
+      const timeoutMs = typeof step.timeoutMs === "number" && step.timeoutMs > 0 ? step.timeoutMs : 6e4;
+      let attempt = 0;
+      let stepSuccess = false;
+      let lastError = null;
+      const stepStart = Date.now();
+      while (attempt <= maxRetries) {
+        try {
+          const delta = await this.runWithTimeout(
+            () => step.run(Object.freeze({ ...currentContext })),
+            timeoutMs,
+            step.id
+          );
+          if (delta && typeof delta === "object") {
+            currentContext = { ...currentContext, ...delta };
+          }
+          stepResults.push({
+            stepId: step.id,
+            name: step.name || step.id,
+            durationMs: Math.max(0, Date.now() - stepStart),
+            retries: attempt,
+            success: true,
+            delta: delta || void 0
+          });
+          stepSuccess = true;
+          break;
+        } catch (err) {
+          lastError = err;
+          attempt++;
+        }
+      }
+      if (!stepSuccess) {
+        if (lastError instanceof AgentWorkflowError) {
+          throw lastError;
+        }
+        throw new AgentWorkflowError(
+          "MAX_RETRIES_EXCEEDED",
+          `Step failed after ${maxRetries + 1} attempt(s): ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+          step.id,
+          { cause: lastError }
+        );
+      }
+    }
+    let leverageReport;
+    if (options.leverageEvaluator) {
+      try {
+        leverageReport = options.leverageEvaluator(
+          Object.freeze({ ...currentContext }),
+          stepResults
+        );
+      } catch (err) {
+        throw new AgentWorkflowError(
+          "LEVERAGE_EVALUATION_FAILED",
+          `Leverage evaluation failed: ${err instanceof Error ? err.message : String(err)}`,
+          void 0,
+          { cause: err }
+        );
+      }
+    }
+    return {
+      workflowName: options.name || "unnamed-workflow",
+      success: true,
+      finalContext: currentContext,
+      totalDurationMs: Math.max(0, Date.now() - startTime),
+      steps: stepResults,
+      leverage: leverageReport
+    };
+  }
+  async runWithTimeout(fn, timeoutMs, stepId) {
+    let timer = null;
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(
+          new AgentWorkflowError(
+            "STEP_TIMEOUT",
+            `Execution exceeded timeout of ${timeoutMs}ms`,
+            stepId
+          )
+        );
+      }, timeoutMs);
+    });
+    try {
+      return await Promise.race([fn(), timeoutPromise]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+};
+async function runAgentWorkflow(options) {
+  const engine = new AgentWorkflowEngine();
+  return engine.execute(options);
+}
+
 // src/webgpu/paged-attention-wgsl.ts
 var PAGED_ATTENTION_WGSL = (
   /* wgsl */
@@ -2420,6 +2547,8 @@ function cpuReferenceReduction(data) {
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
+  AgentWorkflowEngine,
+  AgentWorkflowError,
   AudioProcessor,
   EdgeInfer,
   EventEmitter,
@@ -2449,6 +2578,7 @@ function cpuReferenceReduction(data) {
   probability,
   quantizeInt8,
   residualDistribution,
+  runAgentWorkflow,
   runPagedAttention,
   sample,
   softmax,
